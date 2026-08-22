@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tetris 89 (Mini Popup)</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* Standalone Popup specific layout overrides */
+    body {
+      background-color: var(--panel-bg);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .tetris-widget {
+      position: static;
+      box-shadow: none;
+      border: none;
+      width: 100%;
+      height: 100%;
+      border-radius: 0;
+      justify-content: space-between;
+    }
+    #widget-header {
+      cursor: default;
+    }
+    #btn-popout, #btn-minimize {
+      display: none;
+    }
+  </style>
+</head>
+<body data-theme="gameboy">
+  <div class="crt-overlay"></div>
+
+  <!-- STANDALONE TETRIS POPUP WIDGET -->
+  <div id="tetris-widget" class="tetris-widget">
+    <!-- Header -->
+    <div id="widget-header" class="widget-header">
+      <div class="widget-title">
+        <span>🕹️</span> TETRIS-89 MINI
+        <span id="pomo-badge" class="pomo-badge" title="Click to Toggle Work / Break Timer">🍅 25:00</span>
+      </div>
+      <div class="widget-controls">
+        <button id="btn-pause-header" class="hdr-btn" title="Pause (P)">⏸</button>
+      </div>
+    </div>
+
+    <!-- Main Widget Body -->
+    <div class="widget-body">
+      <!-- Left Side Panel (Hold & Level/Lines) -->
+      <div class="side-panel">
+        <div class="side-box">
+          <div class="side-box-title">HOLD</div>
+          <canvas id="hold-canvas" class="side-canvas"></canvas>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">LEVEL</div>
+          <div id="level-val" class="stat-value">1</div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">LINES</div>
+          <div id="lines-val" class="stat-value">0</div>
+        </div>
+      </div>
+
+      <!-- Center Game Matrix -->
+      <div class="matrix-container">
+        <canvas id="tetris-canvas"></canvas>
+
+        <!-- Line clear / Combo badge -->
+        <div id="line-badge" class="line-clear-badge">+800</div>
+
+        <!-- Pause Overlay -->
+        <div id="pause-overlay" class="matrix-overlay">
+          <div class="overlay-title">PAUSED</div>
+          <div class="overlay-sub">PRESS 'P' OR BUTTON TO RESUME</div>
+          <div style="display: flex; flex-direction: column; gap: 8px; width: 85%;">
+            <button id="btn-unpause" class="retro-btn primary" style="font-size: 8px;">▶ RESUME</button>
+            <button id="btn-restart-pause" class="retro-btn" style="font-size: 8px; border-color: #ff4444; color: #ff6666;">🔄 RESTART GAME</button>
+          </div>
+        </div>
+
+        <!-- Game Over Overlay -->
+        <div id="game-over-overlay" class="matrix-overlay">
+          <div class="overlay-title" style="color: #ff3333;">GAME OVER</div>
+          <div id="new-record-banner" style="font-size: 7px; color: #ffcc00; margin-bottom: 6px; display: none;">★ NEW HIGH SCORE! ★</div>
+          <div class="overlay-sub">
+            SCORE: <span id="final-score-val">0</span><br>
+            LINES: <span id="final-lines-val">0</span>
+          </div>
+          <button id="btn-restart-game" class="retro-btn primary" style="font-size: 8px;">🔄 PLAY AGAIN</button>
+        </div>
+
+        <!-- Resume Saved Game Overlay -->
+        <div id="resume-overlay" class="matrix-overlay">
+          <div class="overlay-title">SAVED GAME FOUND</div>
+          <div id="saved-score-info" class="overlay-sub">SCORE: 0 | LVL: 1</div>
+          <div style="display: flex; flex-direction: column; gap: 6px; width: 85%;">
+            <button id="btn-resume-saved" class="retro-btn primary" style="font-size: 7px;">▶ RESUME GAME</button>
+            <button id="btn-new-instead" class="retro-btn" style="font-size: 7px;">✨ NEW GAME</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Side Panel (Next Queue & Score) -->
+      <div class="side-panel">
+        <div class="side-box">
+          <div class="side-box-title">NEXT</div>
+          <canvas id="next-canvas" class="side-canvas tall"></canvas>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">SCORE</div>
+          <div id="score-val" class="stat-value">0</div>
+        </div>
+
+        <div class="stat-box">
+          <div class="stat-label">TOP</div>
+          <div id="high-score-val" class="stat-value">0</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- On-screen Quick Controls -->
+    <div class="touch-controls">
+      <button id="btn-left" class="touch-btn">◀</button>
+      <button id="btn-rotate" class="touch-btn">ROTATE</button>
+      <button id="btn-right" class="touch-btn">▶</button>
+      <button id="btn-hold" class="touch-btn">HOLD</button>
+      <button id="btn-down" class="touch-btn" style="grid-column: span 2;">SOFT DROP</button>
+      <button id="btn-drop" class="touch-btn" style="grid-column: span 2; background: var(--accent-color); color: #fff;">HARD DROP</button>
+    </div>
+
+    <!-- Footer Toolbar -->
+    <div class="widget-footer">
+      <button id="btn-footer-pause" class="retro-btn" style="font-size: 7px; padding: 4px 6px;" title="Pause / Resume (P)">⏸️ PAUSE</button>
+      <button id="btn-footer-restart" class="retro-btn" style="font-size: 7px; padding: 4px 6px;" title="Restart from Beginning">🔄 RESET</button>
+      <button id="btn-stats" class="retro-btn" style="font-size: 7px; padding: 4px 6px;">📊 STATS</button>
+      <button id="btn-settings" class="retro-btn" style="font-size: 7px; padding: 4px 6px;">⚙️ OPTS</button>
+    </div>
+  </div>
+
+  <!-- BACKDROP -->
+  <div id="modal-backdrop" class="modal-backdrop"></div>
+
+  <!-- SETTINGS MODAL -->
+  <div id="settings-modal" class="retro-modal">
+    <div class="modal-header">
+      <span>⚙️ GAME OPTIONS & THEMES</span>
+      <button id="btn-close-settings" class="hdr-btn">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-title">GAMEPLAY MODES & DIFFICULTY</div>
+      <div class="setting-row">
+        <span>Game Mode:</span>
+        <select id="game-mode-select" class="setting-select">
+          <option value="marathon">Classic Marathon (Endless)</option>
+          <option value="sprint40">40 Lines Sprint (Time Attack)</option>
+          <option value="blitz2min">2-Minute Blitz (Score Rush)</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <span>Starting Level:</span>
+        <select id="starting-level-select" class="setting-select">
+          <option value="1">Level 1 (Easy)</option>
+          <option value="3">Level 3 (Normal)</option>
+          <option value="5">Level 5 (Medium)</option>
+          <option value="8">Level 8 (Fast)</option>
+          <option value="10">Level 10 (Hyper)</option>
+          <option value="15">Level 15 (Grandmaster)</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <span>Shape Set / Mode:</span>
+        <select id="piece-mode-select" class="setting-select">
+          <option value="extended">Extended (U-Shape, +, Corner, T5, W)</option>
+          <option value="pentomino">Master Wild (All 14 Polyominoes)</option>
+          <option value="classic">Classic 7 (Standard 1989)</option>
+        </select>
+      </div>
+
+      <div class="modal-section-title">CODING COMPANION & DISPLAY</div>
+      <div class="setting-row">
+        <span>Window Opacity:</span>
+        <input type="range" id="opacity-slider" min="50" max="100" value="100" style="width: 100px;">
+      </div>
+
+      <div class="setting-row">
+        <span>Pomodoro Focus Companion:</span>
+        <input type="checkbox" id="pomo-toggle">
+      </div>
+
+      <div class="modal-section-title">THEMES & VISUAL EFFECTS</div>
+      <div class="setting-row">
+        <span>Aesthetic Theme:</span>
+        <select id="theme-select" class="setting-select">
+          <option value="gameboy">Game Boy (1989)</option>
+          <option value="nes">NES Classic</option>
+          <option value="cyberpunk">Cyberpunk Neon</option>
+          <option value="matrix">Matrix Phosphor</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <span>Hard Drop Screen Shake:</span>
+        <input type="checkbox" id="shake-toggle" checked>
+      </div>
+
+      <div class="setting-row">
+        <span>Line Clear Pixel Sparks:</span>
+        <input type="checkbox" id="particle-toggle" checked>
+      </div>
+
+      <div class="setting-row">
+        <span>CRT Scanline Shader:</span>
+        <input type="checkbox" id="crt-toggle" checked>
+      </div>
+
+      <div class="setting-row">
+        <span>Ghost Landing Piece:</span>
+        <input type="checkbox" id="ghost-toggle" checked>
+      </div>
+
+      <div class="modal-section-title">8-BIT CHIPTUNE SYNTHESIZER</div>
+      <div class="setting-row">
+        <span>Music Track:</span>
+        <select id="track-select" class="setting-select">
+          <option value="themeA">Theme A (Korobeiniki - Classic)</option>
+          <option value="themeB">Theme B (Troika - Upbeat Dance)</option>
+          <option value="themeC">Theme C (Bradinsky - Arcade)</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <span>BGM Music Enabled:</span>
+        <input type="checkbox" id="bgm-toggle" checked>
+      </div>
+
+      <div class="setting-row">
+        <span>Retro Sound Effects:</span>
+        <input type="checkbox" id="sfx-toggle" checked>
+      </div>
+
+      <div class="modal-section-title">KEYBOARD CUSTOMIZER (CLICK TO REBIND)</div>
+      <div id="keybinds-container" class="keybind-list">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- STATS & PIECE GENERATION MEMORY MODAL -->
+  <div id="stats-modal" class="retro-modal">
+    <div class="modal-header">
+      <span>📊 MEMORY & GENERATION STATS</span>
+      <button id="btn-close-stats" class="hdr-btn">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section-title">ALL-TIME RECORDS & PERSONAL BESTS</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 7px; margin-bottom: 6px;">
+        <div>GAMES: <b id="stat-games-played">0</b></div>
+        <div>LINES: <b id="stat-total-lines">0</b></div>
+        <div>TETRIS: <b id="stat-tetris-count">0</b></div>
+        <div>MAX COMBO: <b id="stat-max-combo">0</b></div>
+        <div>SPRINT (40L): <b id="stat-sprint-record" style="color: #ffff00;">--</b></div>
+        <div>BLITZ (2M): <b id="stat-blitz-record" style="color: #ff33aa;">--</b></div>
+      </div>
+
+      <div class="modal-section-title">7-BAG PIECE GENERATION HISTORY</div>
+      <div id="piece-bars-container" class="piece-bars"></div>
+
+      <div class="modal-section-title">TOP 5 HIGH SCORES (MARATHON)</div>
+      <ul id="high-scores-list" style="padding-left: 0;"></ul>
+    </div>
+  </div>
+
+  <!-- Script includes -->
+  <script src="js/audio.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/ui.js"></script>
+  <script>
+    let tetrisUI = null;
+    window.addEventListener('DOMContentLoaded', () => {
+      tetrisUI = new TetrisUI(true); // Standalone popup mode
+    });
+  </script>
+</body>
+</html>
