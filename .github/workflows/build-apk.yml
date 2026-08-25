@@ -1,0 +1,76 @@
+name: Build & Release Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Flutter APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Sync Web Assets to Flutter App
+        run: |
+          mkdir -p flutter_app/assets/web/css flutter_app/assets/web/js
+          cp index.html popup.html manifest.json sw.js flutter_app/assets/web/
+          cp -r css/* flutter_app/assets/web/css/
+          cp -r js/* flutter_app/assets/web/js/
+
+      - name: Install Flutter Dependencies
+        run: |
+          cd flutter_app
+          flutter pub get
+
+      - name: Build Release APK
+        run: |
+          cd flutter_app
+          flutter build apk --release
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lukey-tetris-apk
+          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: v1.0.0
+          name: "Lukey-Tetris v1.0.0 (Retro Arcade & Companion Widget)"
+          body: |
+            ??? **Lukey-Tetris Android Release**
+            
+            ### ? Features:
+            - Authentic 8-bit classic Tetris gameplay with CRT filter & 4 retro themes.
+            - All 14 custom polyominoes & pentominoes (U-Shape, Plus, Big-T, Corner, Long-5).
+            - 4 Game Modes (40-Lines Sprint, 2-Min Blitz, Classic Marathon, Pentomino Wild).
+            - 8-Bit Chiptune Jukebox (Themes A, B, C) with tactile vibration haptic feedback.
+            - Coding Pomodoro focus timer with persistent task scratchpad.
+            - Zero data loss on future APK upgrades.
+            
+            ### ?? Installation:
+            Download `Lukey-Tetris.apk` below and install it directly on your Android phone!
+          files: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
