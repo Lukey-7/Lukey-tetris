@@ -21,8 +21,19 @@
   <!-- Top Navigation Bar -->
   <header class="portal-nav">
     <div class="portal-logo">
-      <span>🕹️</span> TETRIS-89 // ARCADE PORTAL
+      <span>🕹️</span> RETRO ARCADE // MISSION CONTROL
     </div>
+
+    <!-- Arcade Cabinet Game Switcher -->
+    <div class="arcade-switcher">
+      <button id="tab-tetris" class="game-tab-btn active" title="Switch to Classic Tetris (Tab / 1)">
+        <span>🕹️</span> TETRIS-89
+      </button>
+      <button id="tab-space" class="game-tab-btn" title="Switch to Nova Strike Space Shooter (Tab / 2)">
+        <span>🚀</span> NOVA STRIKE
+      </button>
+    </div>
+
     <div class="portal-nav-actions">
       <select id="quick-theme-select" class="setting-select" title="Switch Theme">
         <option value="gameboy">Game Boy (1989)</option>
@@ -42,7 +53,9 @@
 
   <!-- Main Background Workspace & Arcade Portal -->
   <main class="workspace-container">
-    <div class="portal-hero">
+    <!-- TETRIS-89 VIEW CONTAINER -->
+    <div id="tetris-portal-view" style="width: 100%; display: flex; flex-direction: column; align-items: center; gap: 20px;">
+      <div class="portal-hero">
       <h1 class="portal-hero-title">ARCADE MISSION CONTROL</h1>
       <p class="portal-hero-sub">
         Choose your game mode, tune the 8-bit jukebox, or manage your coding Pomodoro focus sessions. Play right in the floating companion popup or in the mini window beside your IDE!
@@ -279,6 +292,100 @@
         <div><b>M</b> : Mute</div>
       </div>
     </div>
+  </div> <!-- /#tetris-portal-view -->
+
+  <!-- NOVA STRIKE: 1989 SPACE SHOOTER VIEW CONTAINER -->
+  <div id="space-game-view" class="space-view-container">
+    <div class="portal-hero">
+      <h1 class="portal-hero-title">🚀 NOVA STRIKE // 1989</h1>
+      <p class="portal-hero-sub">
+        High-octane retro space combat. Evade swarming alien squadrons, shatter asteroid fields, collect weapon upgrades, and eliminate Dreadnought flagships!
+      </p>
+    </div>
+
+    <div class="space-cabinet-layout">
+      <!-- Left: Canvas Arcade Machine -->
+      <div class="space-arcade-frame">
+        <div id="space-game-container">
+          <canvas id="space-canvas" width="480" height="640"></canvas>
+        </div>
+      </div>
+
+      <!-- Right: Sidebar Mission Control & Guide -->
+      <div class="space-side-panel">
+        <!-- Card 1: Action Controls -->
+        <div class="space-card">
+          <div class="space-card-title">
+            <span>⚡ MISSION CONTROLS</span>
+            <span style="color: #00f0f0;">ACTIVE</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button id="btn-space-bomb" class="retro-btn" style="background: #e40058; color: #fff; font-weight: bold;">
+              <span>💥</span> NOVA BOMB (X)
+            </button>
+            <button id="btn-space-pause" class="retro-btn">
+              <span>⏸️</span> PAUSE / PLAY (P)
+            </button>
+            <button id="btn-space-restart" class="retro-btn">
+              <span>🔄</span> RESTART MISSION (R)
+            </button>
+            <button id="btn-space-audio" class="retro-btn">
+              <span>🎵</span> BGM / SFX MUTE (M)
+            </button>
+            <button id="btn-space-popout" class="retro-btn primary">
+              <span>🚀</span> POP-OUT WINDOW
+            </button>
+          </div>
+        </div>
+
+        <!-- Card 2: Power-up Legend -->
+        <div class="space-card">
+          <div class="space-card-title">
+            <span>📦 FIELD POWER-UPS</span>
+            <span style="color: #ffff00;">DROPS</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <div class="powerup-row">
+              <span class="powerup-badge" style="color: #00f0f0; border-color: #00f0f0;">UP</span>
+              <div><b>WEAPONS</b>: Dual → Vulcan → Quad → 5-Way + Missiles</div>
+            </div>
+            <div class="powerup-row">
+              <span class="powerup-badge" style="color: #33ffaa; border-color: #33ffaa;">SHLD</span>
+              <div><b>SHIELD</b>: Restores deflector barrier to 100%</div>
+            </div>
+            <div class="powerup-row">
+              <span class="powerup-badge" style="color: #ff33ff; border-color: #ff33ff;">BOMB</span>
+              <div><b>NOVA EMP</b>: Clears bullets & heavy shockwave</div>
+            </div>
+            <div class="powerup-row">
+              <span class="powerup-badge" style="color: #ff3344; border-color: #ff3344;">HP</span>
+              <div><b>NANO REPAIR</b>: Restores hull integrity (+35% HP)</div>
+            </div>
+            <div class="powerup-row">
+              <span class="powerup-badge" style="color: #ffff00; border-color: #ffff00;">+500</span>
+              <div><b>SCORE BONUS</b>: +500 Points & combo boost</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Flight Manual -->
+        <div class="space-card">
+          <div class="space-card-title">
+            <span>🎮 FLIGHT MANUAL</span>
+            <span style="color: #00ff66;">SYSTEMS</span>
+          </div>
+          <div style="font-size: 7px; line-height: 1.7; color: var(--text-muted);">
+            <div>• <b>WASD / Arrows</b>: Move Ship</div>
+            <div>• <b>Space / Click</b>: Fire Primary Weapons</div>
+            <div>• <b>X / Right Click</b>: Detonate Nova Bomb</div>
+            <div>• <b>Mouse / Touch</b>: Drag ship to follow pointer</div>
+            <div>• <b>P / ESC</b>: Pause / Unpause</div>
+            <div>• <b>Tab</b>: Quick-switch between games!</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div> <!-- /#space-game-view -->
   </main>
 
   <!-- FLOATING DRAGGABLE TETRIS POPUP WIDGET -->
@@ -554,13 +661,102 @@
   <script src="js/storage.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/space_audio.js"></script>
+  <script src="js/space_engine.js"></script>
+  <script src="js/space_ui.js"></script>
   <script>
     // Initialize UI on DOM load
     let tetrisUI = null;
-    window.addEventListener('DOMContentLoaded', () => {
-      tetrisUI = new TetrisUI(false);
+    let spaceUI = null;
+    let activeGame = 'tetris'; // 'tetris' | 'space'
 
-      // Workspace helper buttons
+    window.addEventListener('DOMContentLoaded', () => {
+      // 1. Initialize Tetris & Space Shooter
+      tetrisUI = new TetrisUI(false);
+      spaceUI = new SpaceUI('space-game-container', false);
+
+      // Initially pause space game until tab is switched
+      spaceUI.engine.isPaused = true;
+
+      // 2. Arcade Game Switcher Logic
+      const tabTetris = document.getElementById('tab-tetris');
+      const tabSpace = document.getElementById('tab-space');
+      const tetrisView = document.getElementById('tetris-portal-view');
+      const spaceView = document.getElementById('space-game-view');
+
+      function switchGame(target) {
+        if (target === activeGame) return;
+        activeGame = target;
+
+        if (target === 'space') {
+          // Pause Tetris
+          if (tetrisUI && tetrisUI.engine && !tetrisUI.engine.isPaused) {
+            tetrisUI.engine.pause();
+          }
+
+          tetrisView.style.display = 'none';
+          spaceView.classList.add('active');
+          tabTetris.classList.remove('active');
+          tabSpace.classList.add('active');
+
+          spaceUI.resizeCanvas();
+          spaceUI.engine.isPaused = false;
+          spaceUI.audio.startBGM();
+        } else {
+          // Pause Space Shooter
+          if (spaceUI && spaceUI.engine) {
+            spaceUI.engine.isPaused = true;
+            spaceUI.audio.stopBGM();
+          }
+
+          spaceView.classList.remove('active');
+          tetrisView.style.display = 'flex';
+          tabSpace.classList.remove('active');
+          tabTetris.classList.add('active');
+        }
+      }
+
+      tabTetris?.addEventListener('click', () => switchGame('tetris'));
+      tabSpace?.addEventListener('click', () => switchGame('space'));
+
+      // Quick Switch with Tab key
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') {
+          if (!['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) {
+            e.preventDefault();
+            switchGame(activeGame === 'tetris' ? 'space' : 'tetris');
+          }
+        }
+      });
+
+      // 3. Nova Strike Action Buttons
+      document.getElementById('btn-space-bomb')?.addEventListener('click', () => {
+        spaceUI.engine.triggerNovaBomb();
+      });
+
+      document.getElementById('btn-space-pause')?.addEventListener('click', () => {
+        spaceUI.togglePause();
+      });
+
+      document.getElementById('btn-space-restart')?.addEventListener('click', () => {
+        spaceUI.engine.resetGame();
+      });
+
+      document.getElementById('btn-space-audio')?.addEventListener('click', () => {
+        const isMuted = spaceUI.audio.toggleMute();
+        const btn = document.getElementById('btn-space-audio');
+        if (btn) btn.innerHTML = isMuted ? '<span>🔇</span> UNMUTE (M)' : '<span>🎵</span> BGM / SFX MUTE (M)';
+      });
+
+      document.getElementById('btn-space-popout')?.addEventListener('click', () => {
+        const popupWidth = 420;
+        const popupHeight = 680;
+        const left = window.screenX + window.outerWidth - popupWidth - 20;
+        const top = window.screenY + 50;
+        window.open('space_popup.html', 'NovaStrikePopup', `width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes`);
+      });
+
+      // 4. Tetris Workspace helper buttons
       document.getElementById('btn-demo-pause')?.addEventListener('click', () => {
         tetrisUI.engine.togglePause();
       });
@@ -582,7 +778,6 @@
 
       document.getElementById('btn-demo-toggle-widget')?.addEventListener('click', () => {
         const widget = document.getElementById('tetris-widget');
-        const pill = document.getElementById('tetris-pill');
         if (widget.classList.contains('minimized')) {
           tetrisUI.restore();
         } else {

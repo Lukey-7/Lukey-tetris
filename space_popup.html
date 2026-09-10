@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nova Strike: 1989 (Mini Arcade)</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body {
+      background: #020408;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+      justify-content: space-between;
+    }
+    .popup-header {
+      background: var(--panel-bg);
+      border-bottom: 2px solid var(--panel-border);
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 8px;
+    }
+    .canvas-container {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      background: #06080e;
+    }
+    #space-canvas {
+      height: 100%;
+      width: auto;
+      max-width: 100%;
+      object-fit: contain;
+    }
+    .popup-toolbar {
+      background: var(--panel-bg);
+      border-top: 2px solid var(--panel-border);
+      padding: 6px 10px;
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+    }
+  </style>
+</head>
+<body data-theme="cyberpunk">
+  <div class="crt-overlay"></div>
+
+  <header class="popup-header">
+    <div style="font-weight: bold; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
+      <span>??</span> NOVA STRIKE // MINI
+    </div>
+    <div style="display: flex; gap: 6px;">
+      <button id="btn-pop-pause" class="hdr-btn" title="Pause (P)">?</button>
+      <button id="btn-pop-audio" class="hdr-btn" title="Mute (M)">??</button>
+    </div>
+  </header>
+
+  <div class="canvas-container" id="space-game-container">
+    <canvas id="space-canvas" width="480" height="640"></canvas>
+  </div>
+
+  <footer class="popup-toolbar">
+    <button id="btn-pop-bomb" class="retro-btn" style="background: #e40058; color: #fff; font-size: 7px; padding: 4px 8px;">
+      ?? NOVA BOMB (X)
+    </button>
+    <button id="btn-pop-restart" class="retro-btn" style="font-size: 7px; padding: 4px 8px;">
+      ?? RESTART (R)
+    </button>
+  </footer>
+
+  <script src="js/space_audio.js"></script>
+  <script src="js/space_engine.js"></script>
+  <script src="js/space_ui.js"></script>
+  <script>
+    let spaceUI = null;
+    window.addEventListener('DOMContentLoaded', () => {
+      spaceUI = new SpaceUI('space-game-container', true);
+      spaceUI.audio.startBGM();
+
+      document.getElementById('btn-pop-bomb')?.addEventListener('click', () => {
+        spaceUI.engine.triggerNovaBomb();
+      });
+
+      document.getElementById('btn-pop-pause')?.addEventListener('click', () => {
+        spaceUI.togglePause();
+        const btn = document.getElementById('btn-pop-pause');
+        if (btn) btn.textContent = spaceUI.engine.isPaused ? '?' : '?';
+      });
+
+      document.getElementById('btn-pop-restart')?.addEventListener('click', () => {
+        spaceUI.engine.resetGame();
+      });
+
+      document.getElementById('btn-pop-audio')?.addEventListener('click', () => {
+        const isMuted = spaceUI.audio.toggleMute();
+        const btn = document.getElementById('btn-pop-audio');
+        if (btn) btn.textContent = isMuted ? '??' : '??';
+      });
+    });
+  </script>
+</body>
+</html>
