@@ -338,7 +338,24 @@
           </div>
         </div>
 
-        <!-- Card 2: Power-up Legend -->
+        <!-- Card 2: Ship Hangar Quick Selector -->
+        <div class="space-card">
+          <div class="space-card-title">
+            <span>🚀 FIGHTER HANGAR</span>
+            <span id="active-ship-badge" style="color: #00ffff; font-weight: bold;">VIPER MK-I</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 8px;">
+            <button id="btn-select-viper" class="retro-btn" style="font-size: 7px; padding: 4px 2px;">VIPER</button>
+            <button id="btn-select-titan" class="retro-btn" style="font-size: 7px; padding: 4px 2px;">TITAN</button>
+            <button id="btn-select-phantom" class="retro-btn" style="font-size: 7px; padding: 4px 2px;">PHANTOM</button>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <button id="btn-mode-campaign" class="retro-btn primary" style="flex: 1; font-size: 7px; padding: 4px 2px;">CAMPAIGN</button>
+            <button id="btn-mode-boss" class="retro-btn" style="flex: 1; font-size: 7px; padding: 4px 2px;">BOSS RUSH</button>
+          </div>
+        </div>
+
+        <!-- Card 3: Power-up Legend -->
         <div class="space-card">
           <div class="space-card-title">
             <span>📦 FIELD POWER-UPS</span>
@@ -661,6 +678,7 @@
   <script src="js/storage.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/space_sprites.js"></script>
   <script src="js/space_audio.js"></script>
   <script src="js/space_engine.js"></script>
   <script src="js/space_ui.js"></script>
@@ -739,7 +757,7 @@
       });
 
       document.getElementById('btn-space-restart')?.addEventListener('click', () => {
-        spaceUI.engine.resetGame();
+        spaceUI.engine.startMission(spaceUI.engine.gameMode);
       });
 
       document.getElementById('btn-space-audio')?.addEventListener('click', () => {
@@ -754,6 +772,34 @@
         const left = window.screenX + window.outerWidth - popupWidth - 20;
         const top = window.screenY + 50;
         window.open('space_popup.html', 'NovaStrikePopup', `width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes`);
+      });
+
+      // Ship Hangar Quick Selectors
+      const badge = document.getElementById('active-ship-badge');
+      document.getElementById('btn-select-viper')?.addEventListener('click', () => {
+        spaceUI.engine.setShip('viper');
+        if (badge) badge.textContent = 'VIPER MK-I';
+        if (spaceUI.audio) spaceUI.audio.playMenuSelect();
+      });
+
+      document.getElementById('btn-select-titan')?.addEventListener('click', () => {
+        spaceUI.engine.setShip('titan');
+        if (badge) badge.textContent = 'TITAN DREADNOUGHT';
+        if (spaceUI.audio) spaceUI.audio.playMenuSelect();
+      });
+
+      document.getElementById('btn-select-phantom')?.addEventListener('click', () => {
+        spaceUI.engine.setShip('phantom');
+        if (badge) badge.textContent = 'PHANTOM INTERCEPTOR';
+        if (spaceUI.audio) spaceUI.audio.playMenuSelect();
+      });
+
+      document.getElementById('btn-mode-campaign')?.addEventListener('click', () => {
+        spaceUI.engine.startMission('campaign');
+      });
+
+      document.getElementById('btn-mode-boss')?.addEventListener('click', () => {
+        spaceUI.engine.startMission('boss_rush');
       });
 
       // 4. Tetris Workspace helper buttons

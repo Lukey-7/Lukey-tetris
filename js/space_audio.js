@@ -378,6 +378,84 @@ class SpaceAudio {
       osc.stop(startTime + 0.32);
     }
   }
+
+  // Arcade BIOS Boot Beep
+  playBootBeep() {
+    if (!this.ctx || this.isMuted) return;
+    this.resume();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(1046.50, now); // High C6
+
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.06);
+  }
+
+  // Menu cursor blip
+  playMenuMove() {
+    if (!this.ctx || this.isMuted) return;
+    this.resume();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(587.33, now); // D5
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.04);
+  }
+
+  // Menu selection confirm chime
+  playMenuSelect() {
+    if (!this.ctx || this.isMuted) return;
+    this.resume();
+    const now = this.ctx.currentTime;
+    [659.25, 1046.50].forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.06);
+      gain.gain.setValueAtTime(0.25, now + idx * 0.06);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.1);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now + idx * 0.06);
+      osc.stop(now + idx * 0.06 + 0.1);
+    });
+  }
+
+  // Sector Launch Fanfare
+  playLaunchFanfare() {
+    if (!this.ctx || this.isMuted) return;
+    this.resume();
+    const now = this.ctx.currentTime;
+    const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99]; // C major arp
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.05);
+      gain.gain.setValueAtTime(0.2, now + idx * 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.05 + 0.15);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now + idx * 0.05);
+      osc.stop(now + idx * 0.05 + 0.15);
+    });
+  }
 }
 
 window.SpaceAudio = SpaceAudio;

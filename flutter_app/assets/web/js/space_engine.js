@@ -19,6 +19,16 @@ class SpaceEngine {
     this.waveCleared = false;
     this.waveTransitionTimer = 0;
 
+    // Arcade State Machine
+    this.gameState = 'BOOT'; // 'BOOT' -> 'TITLE' -> 'HANGAR' -> 'BRIEFING' -> 'PLAYING' -> 'GAMEOVER'
+    this.selectedShip = 'viper'; // 'viper', 'titan', 'phantom'
+    this.gameMode = 'campaign'; // 'campaign', 'endless', 'boss_rush'
+    this.bootTimer = 0;
+    this.bootStep = 0;
+    this.bootMaxSteps = 5;
+    this.briefingTimer = 0;
+    this.briefingDuration = 2.2;
+
     // Screen Shake
     this.shake = 0;
 
@@ -79,6 +89,64 @@ class SpaceEngine {
 
     this.loadHighScore();
     this.setupWave(1);
+  }
+
+  setShip(shipId) {
+    this.selectedShip = shipId;
+    const p = this.player;
+    if (shipId === 'titan') {
+      p.maxHp = 150;
+      p.hp = 150;
+      p.maxShield = 150;
+      p.shield = 150;
+      p.speed = 280;
+      p.weaponTier = 2; // Starts with Triple Vulcan
+    } else if (shipId === 'phantom') {
+      p.maxHp = 75;
+      p.hp = 75;
+      p.maxShield = 80;
+      p.shield = 80;
+      p.speed = 430;
+      p.weaponTier = 3; // Starts with Piercing Beams
+    } else {
+      // Viper MK-I (Balanced)
+      p.maxHp = 100;
+      p.hp = 100;
+      p.maxShield = 100;
+      p.shield = 100;
+      p.speed = 360;
+      p.weaponTier = 1;
+    }
+  }
+
+  startMission(mode = 'campaign') {
+    this.gameMode = mode;
+    this.resetGame();
+    this.setShip(this.selectedShip);
+
+    if (mode === 'boss_rush') {
+      this.wave = 5; // Jump straight to Dreadnought Boss!
+      this.setupWave(5);
+    }
+
+    this.gameState = 'BRIEFING';
+    this.briefingTimer = 0;
+    if (this.audio) this.audio.playLaunchFanfare();
+  }
+
+  goToTitle() {
+    this.gameState = 'TITLE';
+    if (this.audio) this.audio.startBGM();
+  }
+
+  goToHangar() {
+    this.gameState = 'HANGAR';
+    if (this.audio) this.audio.playMenuSelect();
+  }
+
+  skipBoot() {
+    this.gameState = 'TITLE';
+    if (this.audio) this.audio.startBGM();
   }
 
   loadHighScore() {
@@ -284,7 +352,39 @@ class SpaceEngine {
 
   // --- Main Update Loop (60 FPS dt in seconds) ---
   update(dt) {
-    if (this.isPaused || this.isGameOver) return;
+    if (this.isPaused) return;
+
+    // 1. BOOT SEQUENCE
+    if (this.gameState === 'BOOT') {
+      this.bootTimer += dt;
+      if (this.bootTimer >= 0.35 && this.bootStep < this.bootMaxSteps) {
+        this.bootTimer = 0;
+        this.bootStep++;
+        if (this.audio) this.audio.playBootBeep();
+      }
+      if (this.bootStep >= this.bootMaxSteps && this.bootTimer >= 0.7) {
+        this.gameState = 'TITLE';
+        if (this.audio) this.audio.startBGM();
+      }
+      return;
+    }
+
+    // 2. TITLE SCREEN or HANGAR
+    if (this.gameState === 'TITLE' || this.gameState === 'HANGAR') {
+      return;
+    }
+
+    // 3. SECTOR BRIEFING CUTSCENE
+    if (this.gameState === 'BRIEFING') {
+      this.briefingTimer += dt;
+      if (this.briefingTimer >= this.briefingDuration) {
+        this.gameState = 'PLAYING';
+        if (this.audio) this.audio.startBGM();
+      }
+      return;
+    }
+
+    if (this.isGameOver) return;
 
     // Decay Screen Shake
     if (this.shake > 0) {
@@ -902,6 +1002,7 @@ class SpaceEngine {
 
     if (p.lives <= 0) {
       this.isGameOver = true;
+      this.gameState = 'GAMEOVER';
       if (this.audio) this.audio.stopBGM();
     } else {
       // Respawn with invulnerability
