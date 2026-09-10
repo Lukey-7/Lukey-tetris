@@ -1,8 +1,9 @@
 // Lukey-Arcade Offline Cache Service Worker
-const CACHE_NAME = 'lukey-arcade-v3';
+const CACHE_NAME = 'lukey-arcade-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
+  './space.html',
   './popup.html',
   './space_popup.html',
   './css/style.css',

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nova Strike: 1989 - 16-Bit Retro Space Arcade</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><polygon points='50,10 90,85 50,70 10,85' fill='%2300ffff'/></svg>">
+  <style>
+    /* Dedicated Page Styling for Nova Strike */
+    .space-page-container {
+      width: 100%;
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      padding-bottom: 40px;
+    }
+    .ship-select-btn {
+      background: var(--bg-color);
+      border: 2px solid var(--panel-border);
+      color: var(--text-main);
+      font-family: var(--font-pixel);
+      font-size: 7px;
+      padding: 6px 4px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+    .ship-select-btn:hover {
+      background: rgba(0, 240, 240, 0.15);
+      border-color: #00ffff;
+    }
+    .ship-select-btn.active {
+      background: #00ffff;
+      color: #000000;
+      border-color: #ffffff;
+      font-weight: bold;
+      box-shadow: 0 0 8px rgba(0, 240, 240, 0.5);
+    }
+  </style>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW registration error:', err));
+      });
+    }
+  </script>
+</head>
+<body data-theme="cyberpunk">
+  <div class="crt-overlay"></div>
+
+  <!-- Top Navigation Bar -->
+  <header class="portal-nav">
+    <div class="portal-logo">
+      <span>🚀</span> NOVA STRIKE: 1989 // ARCADE CABINET
+    </div>
+
+    <div class="portal-nav-actions">
+      <a href="index.html" class="retro-btn" style="text-decoration: none;" title="Back to Classic Tetris-89">
+        <span>🕹️</span> ← TETRIS-89
+      </a>
+      <select id="quick-theme-select" class="setting-select" title="Switch Theme">
+        <option value="cyberpunk" selected>Cyberpunk Neon</option>
+        <option value="gameboy">Game Boy (1989)</option>
+        <option value="nes">NES Classic</option>
+        <option value="matrix">Matrix Phosphor</option>
+      </select>
+      <button id="btn-space-audio" class="retro-btn" title="Toggle Sound (M)">🔊 AUDIO</button>
+      <button id="btn-space-popout" class="retro-btn primary" title="Open floating standalone popup window">
+        <span>🪟</span> MINI POPUP
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Arcade Portal Container -->
+  <main class="workspace-container">
+    <div class="space-page-container">
+      <div class="portal-hero">
+        <h1 class="portal-hero-title">🚀 NOVA STRIKE // 1989</h1>
+        <p class="portal-hero-sub">
+          Authentic 8-bit & 16-bit arcade space combat simulator. Select your starfighter in the hangar, repel alien swarm formations, dodge asteroid belts, and defeat the Dreadnought mothership! Or jump back to <a href="index.html" style="color: var(--accent-color); font-weight: bold; text-decoration: underline;">Tetris-89</a> anytime.
+        </p>
+      </div>
+
+      <!-- Arcade Cabinet Layout: Canvas on Left, Controls & Hangar on Right -->
+      <div class="space-cabinet-layout">
+        <!-- Arcade Screen & Action Bar -->
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
+          <div class="space-arcade-frame" id="space-game-container">
+            <canvas id="space-canvas" width="480" height="640"></canvas>
+          </div>
+
+          <!-- Bottom Action Bar -->
+          <div class="space-action-bar">
+            <button id="btn-space-bomb" class="retro-btn" style="background: #e40058; color: #fff; font-weight: bold;">
+              💣 NOVA BOMB (X)
+            </button>
+            <button id="btn-space-pause" class="retro-btn">
+              ⏸ PAUSE (P)
+            </button>
+            <button id="btn-space-restart" class="retro-btn">
+              🔄 RESTART (R)
+            </button>
+            <button id="btn-space-hangar" class="retro-btn">
+              🚀 HANGAR
+            </button>
+            <button id="btn-space-title" class="retro-btn">
+              🏠 TITLE MENU
+            </button>
+          </div>
+        </div>
+
+        <!-- Sidebar Dashboard -->
+        <div class="space-side-panel">
+          <!-- Card 1: Fighter Hangar Selection -->
+          <div class="space-card">
+            <div class="space-card-title">
+              <span>🚀 STARFIGHTER HANGAR</span>
+              <span id="active-ship-badge" style="color: #00ffff; font-weight: bold;">VIPER MK-I</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 12px;">
+              <button id="btn-ship-viper" class="ship-select-btn active">
+                <div>VIPER</div>
+                <div style="font-size: 5px; color: #888; margin-top: 2px;">BALANCED</div>
+              </button>
+              <button id="btn-ship-titan" class="ship-select-btn">
+                <div>TITAN</div>
+                <div style="font-size: 5px; color: #888; margin-top: 2px;">HEAVY TANK</div>
+              </button>
+              <button id="btn-ship-phantom" class="ship-select-btn">
+                <div>PHANTOM</div>
+                <div style="font-size: 5px; color: #888; margin-top: 2px;">HIGH SPEED</div>
+              </button>
+            </div>
+
+            <!-- Ship Spec Details -->
+            <div id="ship-stats-display" style="background: var(--bg-color); border: 1px solid var(--panel-border); padding: 8px; font-size: 7px; margin-bottom: 10px;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span>HULL INTEGRITY:</span>
+                <b id="spec-hp" style="color: #00ff88;">100 HP</b>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span>DEFLECTOR SHIELD:</span>
+                <b id="spec-shield" style="color: #00ffff;">100 SP</b>
+              </div>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <span>ENGINE SPEED:</span>
+                <b id="spec-speed" style="color: #ffaa00;">360 (NORMAL)</b>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span>STARTING WEAPON:</span>
+                <b id="spec-weapon" style="color: #ff33aa;">TWIN BLASTERS</b>
+              </div>
+            </div>
+
+            <!-- Launch Mode Buttons -->
+            <div style="display: flex; gap: 6px;">
+              <button id="btn-mode-campaign" class="retro-btn primary" style="flex: 1; font-size: 7px; padding: 6px 2px;">
+                ▶ CAMPAIGN
+              </button>
+              <button id="btn-mode-boss" class="retro-btn" style="flex: 1; font-size: 7px; padding: 6px 2px;">
+                ⚡ BOSS RUSH
+              </button>
+            </div>
+          </div>
+
+          <!-- Card 2: Flight Controls & Tactics -->
+          <div class="space-card">
+            <div class="space-card-title">
+              <span>🎮 FLIGHT CONTROLS</span>
+              <span style="color: var(--text-muted);">60 FPS</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px; font-size: 7px;">
+              <div style="display: flex; justify-content: space-between; border-bottom: 1px dotted var(--grid-line); padding-bottom: 3px;">
+                <span>MOVE / GLIDE:</span>
+                <b>W A S D / ARROWS / MOUSE</b>
+              </div>
+              <div style="display: flex; justify-content: space-between; border-bottom: 1px dotted var(--grid-line); padding-bottom: 3px;">
+                <span>FIRE WEAPONS:</span>
+                <b>SPACE / Z / LEFT CLICK</b>
+              </div>
+              <div style="display: flex; justify-content: space-between; border-bottom: 1px dotted var(--grid-line); padding-bottom: 3px;">
+                <span>NOVA EMP BOMB:</span>
+                <b>X / B / RIGHT CLICK</b>
+              </div>
+              <div style="display: flex; justify-content: space-between; border-bottom: 1px dotted var(--grid-line); padding-bottom: 3px;">
+                <span>PAUSE / RESUME:</span>
+                <b>P / ESCAPE</b>
+              </div>
+              <div style="display: flex; justify-content: space-between;">
+                <span>INSTANT RESTART:</span>
+                <b>R</b>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 3: Hostile Fleet Threat Intel -->
+          <div class="space-card">
+            <div class="space-card-title">
+              <span>👾 THREAT INTEL</span>
+              <span style="color: #ff0055;">CLASSIFIED</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px; font-size: 7px; color: var(--text-muted);">
+              <div><b style="color: #ffcc00;">SCOUT DRONES:</b> Flap mechanical wings in sine waves and dive-bomb at your ship.</div>
+              <div><b style="color: #ff3366;">STRIKER CRUISERS:</b> Patrol flanks and fire dual targeted plasma salvos.</div>
+              <div><b style="color: #aa00ff;">ARMORED GUNSHIPS:</b> Heavy fortresses that release 6-way radial plasma rings.</div>
+              <div><b style="color: #88aaff;">SPACE ASTEROIDS:</b> Chunky floating debris that shatters into 2 high-speed fragments.</div>
+              <div><b style="color: #ff0055;">DREADNOUGHT BOSS (WAVE 5):</b> Massive flagship with flashing reactor core, wing turrets, and bullet hell spirals!</div>
+            </div>
+          </div>
+
+          <!-- Card 4: Ordnance & Power-Ups -->
+          <div class="space-card">
+            <div class="space-card-title">
+              <span>📦 ORDNANCE POWER-UPS</span>
+              <span>4 TYPES</span>
+            </div>
+            <div class="powerup-row">
+              <span class="powerup-badge" style="color: #ffcc00; border-color: #ffcc00;">P</span>
+              <div><b>POWER:</b> Upgrade weapon tier (Twin → Vulcan → Heavy Beam → Homing Missiles).</div>
+            </div>
+            <div class="powerup-row">
+              <span class="powerup-badge" style="color: #00ffff; border-color: #00ffff;">S</span>
+              <div><b>SHIELD:</b> Instantly recharges deflector shields to maximum.</div>
+            </div>
+            <div class="powerup-row">
+              <span class="powerup-badge" style="color: #e40058; border-color: #e40058;">B</span>
+              <div><b>BOMB:</b> Replenishes 1 screen-clearing Nova EMP Bomb charge.</div>
+            </div>
+            <div class="powerup-row">
+              <span class="powerup-badge" style="color: #00ff88; border-color: #00ff88;">+1</span>
+              <div><b>1UP:</b> Extra pilot reserve life for your starfighter squadron.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Script Includes -->
+  <script src="js/space_sprites.js"></script>
+  <script src="js/space_audio.js"></script>
+  <script src="js/space_engine.js"></script>
+  <script src="js/space_ui.js"></script>
+  <script>
+    let spaceUI = null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+      // 1. Initialize Space UI
+      spaceUI = new SpaceUI('space-game-container', false);
+
+      // 2. Action buttons
+      document.getElementById('btn-space-bomb')?.addEventListener('click', () => {
+        spaceUI.engine.triggerNovaBomb();
+      });
+
+      document.getElementById('btn-space-pause')?.addEventListener('click', () => {
+        spaceUI.togglePause();
+        const btn = document.getElementById('btn-space-pause');
+        if (btn) btn.textContent = spaceUI.engine.isPaused ? '▶ RESUME (P)' : '⏸ PAUSE (P)';
+      });
+
+      document.getElementById('btn-space-restart')?.addEventListener('click', () => {
+        spaceUI.engine.startMission(spaceUI.engine.gameMode);
+      });
+
+      document.getElementById('btn-space-hangar')?.addEventListener('click', () => {
+        spaceUI.engine.goToHangar();
+      });
+
+      document.getElementById('btn-space-title')?.addEventListener('click', () => {
+        spaceUI.engine.goToTitle();
+      });
+
+      document.getElementById('btn-space-audio')?.addEventListener('click', () => {
+        spaceUI.audio.toggleMute();
+        const btn = document.getElementById('btn-space-audio');
+        if (btn) btn.textContent = spaceUI.audio.isMuted ? '🔇 MUTED' : '🔊 AUDIO';
+      });
+
+      document.getElementById('btn-space-popout')?.addEventListener('click', () => {
+        const popupWidth = 480;
+        const popupHeight = 700;
+        const left = window.screenX + window.outerWidth - popupWidth - 20;
+        const top = window.screenY + 50;
+        window.open('space_popup.html', 'NovaStrikePopup', `width=${popupWidth},height=${popupHeight},left=${left},top=${top},resizable=yes`);
+      });
+
+      // 3. Theme selector
+      const themeSelect = document.getElementById('quick-theme-select');
+      themeSelect?.addEventListener('change', (e) => {
+        document.body.setAttribute('data-theme', e.target.value);
+      });
+
+      // 4. Ship Hangar Selectors
+      const badge = document.getElementById('active-ship-badge');
+      const btnViper = document.getElementById('btn-ship-viper');
+      const btnTitan = document.getElementById('btn-ship-titan');
+      const btnPhantom = document.getElementById('btn-ship-phantom');
+
+      const specHp = document.getElementById('spec-hp');
+      const specShield = document.getElementById('spec-shield');
+      const specSpeed = document.getElementById('spec-speed');
+      const specWeapon = document.getElementById('spec-weapon');
+
+      function updateShipUI(shipId) {
+        spaceUI.engine.setShip(shipId);
+        btnViper?.classList.toggle('active', shipId === 'viper');
+        btnTitan?.classList.toggle('active', shipId === 'titan');
+        btnPhantom?.classList.toggle('active', shipId === 'phantom');
+
+        if (shipId === 'titan') {
+          if (badge) badge.textContent = 'TITAN DREADNOUGHT';
+          if (specHp) { specHp.textContent = '150 HP (+50%)'; specHp.style.color = '#00ff88'; }
+          if (specShield) { specShield.textContent = '150 SP (+50%)'; specShield.style.color = '#00ffff'; }
+          if (specSpeed) { specSpeed.textContent = '280 (TANK)'; specSpeed.style.color = '#ff8800'; }
+          if (specWeapon) { specWeapon.textContent = 'TRIPLE VULCAN SPREAD'; specWeapon.style.color = '#ffcc00'; }
+        } else if (shipId === 'phantom') {
+          if (badge) badge.textContent = 'PHANTOM INTERCEPTOR';
+          if (specHp) { specHp.textContent = '75 HP (-25%)'; specHp.style.color = '#ff4444'; }
+          if (specShield) { specShield.textContent = '80 SP (-20%)'; specShield.style.color = '#00ffff'; }
+          if (specSpeed) { specSpeed.textContent = '430 (HYPER FAST)'; specSpeed.style.color = '#00ffea'; }
+          if (specWeapon) { specWeapon.textContent = 'PIERCING BEAM LASERS'; specWeapon.style.color = '#ff00ff'; }
+        } else {
+          if (badge) badge.textContent = 'VIPER MK-I';
+          if (specHp) { specHp.textContent = '100 HP (NORMAL)'; specHp.style.color = '#00ff88'; }
+          if (specShield) { specShield.textContent = '100 SP (NORMAL)'; specShield.style.color = '#00ffff'; }
+          if (specSpeed) { specSpeed.textContent = '360 (BALANCED)'; specSpeed.style.color = '#ffaa00'; }
+          if (specWeapon) { specWeapon.textContent = 'TWIN PLASMA BLASTERS'; specWeapon.style.color = '#ff33aa'; }
+        }
+
+        if (spaceUI.audio) spaceUI.audio.playMenuSelect();
+      }
+
+      btnViper?.addEventListener('click', () => updateShipUI('viper'));
+      btnTitan?.addEventListener('click', () => updateShipUI('titan'));
+      btnPhantom?.addEventListener('click', () => updateShipUI('phantom'));
+
+      document.getElementById('btn-mode-campaign')?.addEventListener('click', () => {
+        spaceUI.engine.startMission('campaign');
+      });
+
+      document.getElementById('btn-mode-boss')?.addEventListener('click', () => {
+        spaceUI.engine.startMission('boss_rush');
+      });
+    });
+  </script>
+</body>
+</html>

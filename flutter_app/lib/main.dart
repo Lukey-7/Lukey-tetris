@@ -69,6 +69,17 @@ class _TetrisGameScreenState extends State<TetrisGameScreen> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
+          onNavigationRequest: (NavigationRequest request) {
+            if (request.url.contains('space.html')) {
+              _controller.loadFlutterAsset('assets/web/space.html');
+              return NavigationDecision.prevent;
+            }
+            if (request.url.contains('index.html')) {
+              _controller.loadFlutterAsset('assets/web/index.html');
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
           onPageFinished: (String url) {
             setState(() {
               _isLoading = false;
