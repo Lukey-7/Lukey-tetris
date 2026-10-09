@@ -406,6 +406,32 @@ class SpaceUI {
     });
 
     this.engine.update(dt);
+    this.updateMusic();
+  }
+
+  // Music director: picks the chiptune track that matches the current screen
+  updateMusic() {
+    const e = this.engine, a = this.audio;
+    if (!a || !a.setTrack) return;
+
+    // One-shot jingles on state changes
+    if (e.waveCleared && !this.prevWaveCleared) a.playJingle('clear');
+    if (e.isGameOver && !this.prevGameOver) a.playJingle('gameover');
+    this.prevWaveCleared = e.waveCleared;
+    this.prevGameOver = e.isGameOver;
+
+    const state = e.gameState;
+    // Leaving the game for the menus cuts any jingle that is still playing
+    if (state !== this.prevState && (state === 'TITLE' || state === 'HANGAR') && a.jingleActive) a.stopBGM();
+    this.prevState = state;
+
+    let track = null;
+    if (state === 'TITLE' || state === 'HANGAR') {
+      track = 'title';
+    } else if (state === 'PLAYING' && !e.isGameOver && !e.isPaused && !e.waveCleared) {
+      track = e.boss ? 'boss' : 'stage';
+    }
+    a.setTrack(track);
   }
 
   // =====================================================================
