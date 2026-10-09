@@ -54,11 +54,11 @@
 
   <header class="popup-header">
     <div style="font-weight: bold; color: var(--text-main); display: flex; align-items: center; gap: 6px;">
-      <span>??</span> NOVA STRIKE // MINI
+      <span>🚀</span> NOVA STRIKE // MINI
     </div>
     <div style="display: flex; gap: 6px;">
       <button id="btn-pop-pause" class="hdr-btn" title="Pause (P)">?</button>
-      <button id="btn-pop-audio" class="hdr-btn" title="Mute (M)">??</button>
+      <button id="btn-pop-audio" class="hdr-btn" title="Mute (M)">🔊</button>
     </div>
   </header>
 
@@ -68,14 +68,15 @@
 
   <footer class="popup-toolbar">
     <button id="btn-pop-bomb" class="retro-btn" style="background: #e40058; color: #fff; font-size: 7px; padding: 4px 8px;">
-      ?? NOVA BOMB (X)
+      💣 NOVA BOMB (X)
     </button>
     <button id="btn-pop-restart" class="retro-btn" style="font-size: 7px; padding: 4px 8px;">
-      ?? RESTART (R)
+      🔄 RESTART (R)
     </button>
   </footer>
 
   <script src="js/space_sprites.js"></script>
+  <script src="js/space_pixel.js"></script>
   <script src="js/space_audio.js"></script>
   <script src="js/space_engine.js"></script>
   <script src="js/space_ui.js"></script>
@@ -102,7 +103,7 @@
       document.getElementById('btn-pop-audio')?.addEventListener('click', () => {
         const isMuted = spaceUI.audio.toggleMute();
         const btn = document.getElementById('btn-pop-audio');
-        if (btn) btn.textContent = isMuted ? '??' : '??';
+        if (btn) btn.textContent = isMuted ? '🔇' : '🔊';
       });
     });
   </script>

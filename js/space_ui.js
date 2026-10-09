@@ -18,17 +18,35 @@ class SpaceUI {
     }
     this.ctx = this.canvas ? this.canvas.getContext('2d') : null;
 
-    // Fixed virtual resolution with pixel-art integer scaling
+    // Game space is 480x640; it is drawn onto a 240x320 pixel buffer
+    // (arcade-board resolution) and scaled up by a whole number.
     this.vWidth = 480;
     this.vHeight = 640;
+    this.LW = 240;
+    this.LH = 320;
     this.scale = 1;
+    this.pixelScale = 2;
+    this.buffer = document.createElement('canvas');
+    this.buffer.width = this.LW;
+    this.buffer.height = this.LH;
+    this.bctx = this.buffer.getContext('2d');
+    this.bctx.imageSmoothingEnabled = false;
+    this.frame = 0;
+    this.showRecords = false;
+
+    // Title menu layout (low-res pixels), shared by the renderer and click handling
+    this.MENU_Y0 = 190;
+    this.MENU_STEP = 14;
+
+    this.logo = PixelKit.buildLogo(['NOVA', 'STRIKE'], 4,
+      ['#fcfc00', '#fca044', '#f83800', '#d800cc', '#6844fc'], '#000000', '#000088');
 
     // Menu Navigation State
     this.menuIndex = 0;
     this.menuOptions = [
       { id: 'campaign', label: '1. MISSION CAMPAIGN' },
       { id: 'hangar', label: '2. SHIP HANGAR' },
-      { id: 'mode', label: '3. BATTLE MODE: CAMPAIGN' },
+      { id: 'mode', label: '3. MODE: CAMPAIGN' },
       { id: 'records', label: '4. HALL OF ACES' }
     ];
     this.hangarIndex = 0;
@@ -54,39 +72,22 @@ class SpaceUI {
   }
 
   initStars() {
+    // Low-res starfield: layer 0 = blinking colour stars, 1 = slow white, 2 = fast streaks
     this.stars = [];
-    // 3 Layers of 8-bit chunky stars
-    for (let i = 0; i < 70; i++) {
-      this.stars.push({
-        x: Math.floor(Math.random() * this.vWidth),
-        y: Math.floor(Math.random() * this.vHeight),
-        speed: 22 + Math.random() * 18,
-        size: 2,
-        color: Math.random() > 0.4 ? '#ffffff' : (Math.random() > 0.5 ? '#00f0f0' : '#ffaa00'),
-        layer: 0
-      });
-    }
-    for (let i = 0; i < 35; i++) {
-      this.stars.push({
-        x: Math.floor(Math.random() * this.vWidth),
-        y: Math.floor(Math.random() * this.vHeight),
-        speed: 55 + Math.random() * 35,
-        size: 3,
-        color: '#ffffff',
-        layer: 1
-      });
-    }
-    for (let i = 0; i < 12; i++) {
-      this.stars.push({
-        x: Math.floor(Math.random() * this.vWidth),
-        y: Math.floor(Math.random() * this.vHeight),
-        speed: 160 + Math.random() * 80,
-        size: 3,
-        length: 10 + Math.random() * 12, // Warp streak
-        color: '#33ffcc',
-        layer: 2
-      });
-    }
+    const add = (count, layer, minSpeed, spread) => {
+      for (let i = 0; i < count; i++) {
+        this.stars.push({
+          x: Math.floor(Math.random() * this.LW),
+          y: Math.random() * this.LH,
+          speed: minSpeed + Math.random() * spread,
+          phase: Math.floor(Math.random() * 64),
+          layer
+        });
+      }
+    };
+    add(56, 0, 14, 10);
+    add(18, 1, 30, 14);
+    add(6, 2, 70, 30);
   }
 
   resizeCanvas() {
@@ -95,24 +96,25 @@ class SpaceUI {
     const w = rect.width || this.vWidth;
     const h = rect.height || this.vHeight;
 
-    const aspect = this.vWidth / this.vHeight;
+    const aspect = this.LW / this.LH;
     let targetW = w;
     let targetH = w / aspect;
-
     if (targetH > h) {
       targetH = h;
       targetW = h * aspect;
     }
 
-    this.canvas.width = this.vWidth;
-    this.canvas.height = this.vHeight;
+    // Back the canvas with a whole-number multiple of the 240x320 buffer so
+    // every arcade pixel maps to an identical block of screen pixels.
+    const dpr = window.devicePixelRatio || 1;
+    this.pixelScale = Math.max(1, Math.min(8, Math.ceil((targetW * dpr) / this.LW)));
+    this.canvas.width = this.LW * this.pixelScale;
+    this.canvas.height = this.LH * this.pixelScale;
     this.canvas.style.width = `${targetW}px`;
     this.canvas.style.height = `${targetH}px`;
     this.scale = targetW / this.vWidth;
 
-    if (this.ctx) {
-      this.ctx.imageSmoothingEnabled = false; // Authentic pixel art rendering!
-    }
+    if (this.ctx) this.ctx.imageSmoothingEnabled = false;
   }
 
   initInputs() {
@@ -122,6 +124,19 @@ class SpaceUI {
 
       const k = e.key.toLowerCase();
       const state = this.engine.gameState;
+
+      // Any key skips the boot sequence
+      if (state === 'BOOT') {
+        this.engine.skipBoot();
+        return;
+      }
+
+      // Hall of Aces screen: any key returns to the menu
+      if (state === 'TITLE' && this.showRecords) {
+        this.showRecords = false;
+        if (this.audio) this.audio.playMenuMove();
+        return;
+      }
 
       // 1. Title Screen & Menu Controls
       if (state === 'TITLE') {
@@ -216,11 +231,14 @@ class SpaceUI {
         }
 
         if (state === 'TITLE') {
-          // Check menu item clicks
-          const startY = 320;
+          if (this.showRecords) {
+            this.showRecords = false;
+            return;
+          }
+          // Check menu item clicks (menu layout is in low-res pixels; game space is 2x)
           for (let i = 0; i < this.menuOptions.length; i++) {
-            const itemY = startY + i * 40;
-            if (pos.y >= itemY - 15 && pos.y <= itemY + 15) {
+            const itemY = (this.MENU_Y0 + i * this.MENU_STEP) * 2;
+            if (pos.y >= itemY - 6 && pos.y <= itemY + 20) {
               this.selectMenuItem(i);
               return;
             }
@@ -343,10 +361,10 @@ class SpaceUI {
       this.modeIndex = (this.modeIndex + 1) % this.modeList.length;
       const mode = this.modeList[this.modeIndex];
       this.engine.gameMode = mode;
-      this.menuOptions[2].label = `3. BATTLE MODE: ${mode.toUpperCase()}`;
+      this.menuOptions[2].label = `3. MODE: ${mode.replace('_', ' ').toUpperCase()}`;
     } else if (index === 3) {
       // 4. Hall of Aces
-      alert(`?? HALL OF ACES RECORD:\nHIGH SCORE: ${this.engine.highScore} PTS\nCURRENT SHIP: ${this.engine.selectedShip.toUpperCase()}`);
+      this.showRecords = true;
     }
   }
 
@@ -375,619 +393,519 @@ class SpaceUI {
 
   update(dt) {
     this.blinkTimer += dt;
-    this.nebulaOffset += dt * 8;
+    this.frame++;
 
-    // Parallax starfield update
+    // Galaga-style starfield scrolls on the low-res grid
+    const warp = this.engine.gameState === 'BRIEFING' ? 4 : 1;
     this.stars.forEach(star => {
-      star.y += star.speed * dt;
-      if (star.y > this.vHeight) {
-        star.y = -10;
-        star.x = Math.floor(Math.random() * this.vWidth);
+      star.y += star.speed * warp * dt;
+      if (star.y >= this.LH) {
+        star.y -= this.LH;
+        star.x = Math.floor(Math.random() * this.LW);
       }
     });
 
     this.engine.update(dt);
   }
 
+  // =====================================================================
+  //  PIXEL RENDERER
+  //  Everything is drawn on a 240x320 buffer (half the 480x640 game space)
+  //  and scaled up by a whole number with no smoothing.
+  // =====================================================================
+
+  // Game-space (480x640) -> low-res pixel coordinate
+  lx(v) { return Math.round(v / 2); }
+
+  blink(rate = 2) {
+    return Math.floor(this.blinkTimer * rate) % 2 === 0;
+  }
+
+  shipSprite(shipId) {
+    return SpaceSprites[shipId === 'titan' ? 'Titan' : (shipId === 'phantom' ? 'Phantom' : 'Viper')];
+  }
+
   render() {
     if (!this.ctx) return;
-    const ctx = this.ctx;
-    ctx.save();
+    const b = this.bctx;
+    const K = PixelKit;
 
-    // Pixel Rendering Settings
-    ctx.imageSmoothingEnabled = false;
+    b.save();
+    b.fillStyle = K.C.black;
+    b.fillRect(0, 0, this.LW, this.LH);
 
-    // 1. Background
-    ctx.fillStyle = '#04060a';
-    ctx.fillRect(0, 0, this.vWidth, this.vHeight);
+    this.renderStarfield(b);
 
-    // 2. Parallax Nebula & Starfield
-    this.renderNebula(ctx);
-    this.renderStarfield(ctx);
-
-    // 3. Screen State Routing
     const state = this.engine.gameState;
-
     if (state === 'BOOT') {
-      this.renderBootScreen(ctx);
+      this.renderBootScreen(b);
     } else if (state === 'TITLE') {
-      this.renderTitleScreen(ctx);
+      if (this.showRecords) this.renderRecordsScreen(b);
+      else this.renderTitleScreen(b);
     } else if (state === 'HANGAR') {
-      this.renderHangarScreen(ctx);
+      this.renderHangarScreen(b);
     } else if (state === 'BRIEFING') {
-      this.renderBriefingScreen(ctx);
+      this.renderBriefingScreen(b);
     } else {
-      // PLAYING or GAMEOVER
-      this.renderCombat(ctx);
+      this.renderCombat(b);
     }
+    b.restore();
 
-    // 4. CRT Scanlines effect
+    // Upscale the low-res frame with hard pixel edges
+    const ctx = this.ctx;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.buffer, 0, 0, this.canvas.width, this.canvas.height);
     this.renderScanlines(ctx);
-
-    ctx.restore();
   }
 
-  renderNebula(ctx) {
-    const grad = ctx.createRadialGradient(
-      this.vWidth * 0.35,
-      (this.nebulaOffset % (this.vHeight * 2)) - 80,
-      10,
-      this.vWidth * 0.35,
-      (this.nebulaOffset % (this.vHeight * 2)) - 80,
-      280
-    );
-    grad.addColorStop(0, 'rgba(35, 10, 60, 0.4)');
-    grad.addColorStop(0.6, 'rgba(8, 20, 50, 0.2)');
-    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, this.vWidth, this.vHeight);
-  }
-
-  renderStarfield(ctx) {
+  renderStarfield(b) {
+    const twinkle = PixelKit.C;
+    const colors = [twinkle.white, twinkle.cyan, twinkle.yellow, twinkle.pink, twinkle.green, twinkle.red];
     this.stars.forEach(s => {
-      ctx.fillStyle = s.color;
-      if (s.layer === 2) {
-        ctx.fillRect(s.x, s.y, s.size, s.length);
-      } else {
-        ctx.fillRect(s.x, s.y, s.size, s.size);
-      }
+      // Each star blinks on its own phase, like the Galaga star generator
+      if (((this.frame + s.phase) >> 4) % 4 === 0 && s.layer === 0) return;
+      b.fillStyle = s.layer === 0 ? colors[(s.phase + (this.frame >> 5)) % colors.length] : twinkle.white;
+      b.fillRect(Math.floor(s.x), Math.floor(s.y), 1, s.layer === 2 ? 2 : 1);
     });
   }
 
   renderScanlines(ctx) {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
-    for (let y = 0; y < this.vHeight; y += 4) {
-      ctx.fillRect(0, y, this.vWidth, 1.5);
+    const s = this.pixelScale;
+    if (s < 2) return;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+    const h = Math.max(1, Math.floor(s / 3));
+    for (let y = s - h; y < this.canvas.height; y += s) {
+      ctx.fillRect(0, y, this.canvas.width, h);
     }
   }
 
-  // --- 1. RETRO 1989 BIOS BOOT SCREEN ---
-  renderBootScreen(ctx) {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
-    ctx.fillRect(0, 0, this.vWidth, this.vHeight);
-
-    ctx.font = 'bold 11px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#00f0f0';
-
-    ctx.fillText('? NEO-ARCADE 1989 SYSTEM BIOS V2.4 ?', 30, 80);
-    ctx.fillStyle = '#6688aa';
-    ctx.fillText('COPYRIGHT (C) 1989 LUKEY CORP. ALL RIGHTS RESERVED.', 30, 105);
+  // --- 1. ARCADE POWER-ON SELF TEST ---
+  renderBootScreen(b) {
+    const K = PixelKit, C = K.C;
+    K.text(b, 'NEO-ARCADE 1989', 12, 20, C.cyan);
+    K.text(b, 'SYSTEM BIOS V2.4', 12, 30, C.cyan);
+    K.text(b, '(C)1989 LUKEY CORP.', 12, 42, C.grey);
 
     const steps = [
-      'MAIN CPU (MC68000 @ 12MHz) ........ [ OK ]',
-      'RAM SYSTEM CHECK (64KB SRAM) ...... [ OK ]',
-      'VRAM TILES (128KB 16-COLOR) ....... [ OK ]',
-      'FM SYNTH AUDIO (YM2151 + DAC) .... [ OK ]',
-      'WARP DRIVE SECTOR ENGINE .......... [ ONLINE ]'
+      ['MAIN CPU 68000', 'OK'],
+      ['WORK RAM 64K', 'OK'],
+      ['VIDEO RAM 128K', 'OK'],
+      ['SOUND YM2151', 'OK'],
+      ['WARP DRIVE', 'ONLINE']
     ];
-
-    ctx.font = '10px monospace';
     const curStep = this.engine.bootStep;
-
     for (let i = 0; i < Math.min(curStep, steps.length); i++) {
-      ctx.fillStyle = i === steps.length - 1 ? '#33ffaa' : '#ffffff';
-      ctx.fillText(steps[i], 30, 160 + i * 36);
+      const y = 70 + i * 14;
+      K.text(b, steps[i][0], 12, y, C.white);
+      // dotted leader
+      b.fillStyle = C.darkGrey;
+      for (let x = 12 + K.textWidth(steps[i][0]) + 4; x < 180; x += 3) b.fillRect(x, y + 6, 1, 1);
+      K.text(b, steps[i][1], 228, y, i === steps.length - 1 ? C.green : C.gold, { align: 'right' });
     }
 
-    // Warp loading progress bar
-    const barY = 400;
-    ctx.strokeStyle = '#00f0f0';
-    ctx.strokeRect(30, barY, this.vWidth - 60, 16);
+    // Block progress bar
+    const progress = Math.min(1, (curStep + this.engine.bootTimer / 0.4) / this.engine.bootMaxSteps);
+    K.box(b, 12, 160, 216, 11, C.cyan);
+    const blocks = Math.floor(progress * 26);
+    b.fillStyle = C.cyan;
+    for (let i = 0; i < blocks; i++) b.fillRect(14 + i * 8 + 1, 162, 6, 7);
+    K.text(b, `LOADING ${String(Math.round(progress * 100)).padStart(3, ' ')}%`, 120, 178, C.grey, { align: 'center' });
 
-    const progress = Math.min(1.0, (curStep + this.engine.bootTimer / 0.4) / this.engine.bootMaxSteps);
-    ctx.fillStyle = '#00f0f0';
-    ctx.fillRect(32, barY + 2, (this.vWidth - 64) * progress, 12);
+    // Colour-bar test pattern, as arcade boards showed on boot
+    const bars = [C.white, C.gold, C.aqua, C.green, C.magenta, C.red, C.blue, C.black];
+    bars.forEach((col, i) => {
+      b.fillStyle = col;
+      b.fillRect(12 + i * 27, 210, 27, 24);
+    });
+    K.box(b, 11, 209, 218, 26, C.darkGrey);
 
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#aaaaaa';
-    ctx.font = '9px monospace';
-    ctx.fillText(`LOADING SECTOR ASSETS: ${Math.round(progress * 100)}%`, this.vWidth / 2, barY + 36);
-
-    if (Math.floor(this.blinkTimer * 3) % 2 === 0) {
-      ctx.fillStyle = '#ffff00';
-      ctx.fillText('[ TAP OR CLICK ANYWHERE TO SKIP BOOT ]', this.vWidth / 2, 540);
-    }
+    if (this.blink(3)) K.text(b, 'PRESS ANY KEY TO SKIP', 120, 280, C.gold, { align: 'center' });
   }
 
-  // --- 2. ARCADE TITLE & MAIN MENU SCREEN ---
-  renderTitleScreen(ctx) {
-    ctx.textAlign = 'center';
+  // --- 2. TITLE SCREEN ---
+  renderTitleScreen(b) {
+    const K = PixelKit, C = K.C;
+    const hi = String(Math.max(this.engine.highScore, 0)).padStart(6, '0');
+    K.text(b, '1UP', 30, 4, C.red);
+    K.text(b, 'HI-SCORE', 120, 4, C.red, { align: 'center' });
+    K.text(b, '000000', 30, 13, C.white);
+    K.text(b, hi, 120, 13, C.white, { align: 'center' });
 
-    // Giant Pixel Title Banner
-    ctx.font = 'bold 28px monospace';
-    ctx.fillStyle = '#00f0f0';
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = '#00f0f0';
-    ctx.fillText('? NOVA STRIKE ?', this.vWidth / 2, 120);
+    // Striped arcade logo, gently bobbing
+    const bob = Math.round(Math.sin(this.blinkTimer * 2) * 2);
+    b.drawImage(this.logo, Math.round(120 - this.logo.width / 2), 34 + bob);
+    K.text(b, '- SECTOR VANGUARD -', 120, 112, C.pink, { align: 'center', shadow: C.navy });
 
-    ctx.font = 'bold 12px monospace';
-    ctx.fillStyle = '#ff007f';
-    ctx.shadowColor = '#ff007f';
-    ctx.fillText('1 9 8 9   S E C T O R   V A N G U A R D', this.vWidth / 2, 145);
-    ctx.shadowBlur = 0;
+    // Ship preview with flickering thruster
+    const ship = this.engine.selectedShip;
+    K.blit(b, K.sprite('ship-' + ship, this.shipSprite(ship), SpaceSprites.Palettes[ship]), 120, 140, 2);
+    this.renderThruster(b, 120, 157, 2);
 
-    // Animated Starfighter Preview
-    const previewShip = SpaceSprites[this.engine.selectedShip === 'titan' ? 'Titan' : (this.engine.selectedShip === 'phantom' ? 'Phantom' : 'Viper')];
-    const palette = SpaceSprites.Palettes[this.engine.selectedShip];
-    SpaceSprites.drawSprite(ctx, previewShip, this.vWidth / 2, 220, 3, palette);
+    if (this.blink(2)) K.text(b, 'PUSH START BUTTON', 120, 170, C.gold, { align: 'center' });
 
-    // Flashing Insert Coin prompt
-    if (Math.floor(this.blinkTimer * 2) % 2 === 0) {
-      ctx.font = 'bold 11px monospace';
-      ctx.fillStyle = '#ffff00';
-      ctx.fillText('? INSERT COIN / PRESS ENTER TO START ?', this.vWidth / 2, 285);
-    }
-
-    // Interactive Menu Options
-    const startY = 340;
     this.menuOptions.forEach((opt, idx) => {
-      const isSelected = this.menuIndex === idx;
-      ctx.font = isSelected ? 'bold 12px monospace' : '11px monospace';
-
-      if (isSelected) {
-        ctx.fillStyle = '#00ffff';
-        ctx.fillText(`>  ${opt.label}  <`, this.vWidth / 2, startY + idx * 36);
-      } else {
-        ctx.fillStyle = '#7799bb';
-        ctx.fillText(opt.label, this.vWidth / 2, startY + idx * 36);
-      }
+      const y = this.MENU_Y0 + idx * this.MENU_STEP;
+      const selected = this.menuIndex === idx;
+      K.text(b, opt.label, 48, y, selected ? C.white : C.cyan);
+      if (selected && this.blink(4)) K.text(b, '>', 38, y, C.gold);
     });
 
-    // Arcade Footer
-    ctx.font = '8px monospace';
-    ctx.fillStyle = '#445566';
-    ctx.fillText('CREDIT 01    HIGHEST: ' + String(this.engine.highScore).padStart(6, '0'), this.vWidth / 2, 590);
-    ctx.fillText('USE ARROWS / WASD TO NAVIGATE • ENTER TO SELECT', this.vWidth / 2, 610);
+    K.text(b, '(C) 1989 LUKEY CORP.', 120, 282, C.white, { align: 'center' });
+    K.text(b, 'ARROWS/WASD + ENTER', 120, 294, C.grey, { align: 'center' });
+    K.text(b, 'CREDIT 01', 234, 308, C.white, { align: 'right' });
+  }
+
+  renderRecordsScreen(b) {
+    const K = PixelKit, C = K.C;
+    K.text(b, 'HALL OF ACES', 120, 40, C.gold, { scale: 2, align: 'center', shadow: C.red });
+    K.panel(b, 30, 80, 180, 110, C.cyan);
+    K.text(b, 'RANK  SCORE   PILOT', 120, 94, C.cyan, { align: 'center' });
+    K.text(b, '1ST   ' + String(this.engine.highScore).padStart(6, '0') + '  ACE', 120, 112, C.white, { align: 'center' });
+    for (let i = 2; i <= 5; i++) {
+      K.text(b, ['', '', '2ND', '3RD', '4TH', '5TH'][i] + '   ------  ---', 120, 112 + (i - 1) * 14, C.darkGrey, { align: 'center' });
+    }
+    K.text(b, 'SHIP: ' + this.engine.selectedShip.toUpperCase(), 120, 210, C.white, { align: 'center' });
+    if (this.blink(2)) K.text(b, 'PRESS ANY KEY', 120, 250, C.gold, { align: 'center' });
   }
 
   // --- 3. SHIP SELECTION HANGAR ---
-  renderHangarScreen(ctx) {
-    ctx.textAlign = 'center';
-
-    ctx.font = 'bold 18px monospace';
-    ctx.fillStyle = '#00f0f0';
-    ctx.fillText('?? SHIP SELECTION HANGAR', this.vWidth / 2, 60);
-
-    ctx.font = '9px monospace';
-    ctx.fillStyle = '#88aa99';
-    ctx.fillText('CHOOSE YOUR FIGHTER FOR THE CAMPAIGN', this.vWidth / 2, 85);
+  renderHangarScreen(b) {
+    const K = PixelKit, C = K.C;
+    K.text(b, 'HANGAR', 120, 8, C.cyan, { scale: 2, align: 'center', shadow: C.navy });
+    K.text(b, 'SELECT YOUR FIGHTER', 120, 28, C.white, { align: 'center' });
 
     const shipConfigs = {
-      viper: { name: 'VIPER MK-I', role: 'BALANCED ALL-ROUNDER', hp: '100', shield: '100', spd: '360', wep: 'TWIN BLASTER' },
-      titan: { name: 'TITAN DREADNOUGHT', role: 'HEAVY SIEGE TANK', hp: '150', shield: '150', spd: '280', wep: 'TRIPLE VULCAN' },
-      phantom: { name: 'PHANTOM INTERCEPTOR', role: 'SPEED STRIKER', hp: '75', shield: '80', spd: '420', wep: 'PIERCING BEAM' }
+      viper: { name: 'VIPER MK-I', role: 'BALANCED', hp: 100, shield: 100, spd: 360, wep: 'TWIN BLASTER' },
+      titan: { name: 'TITAN', role: 'HEAVY TANK', hp: 150, shield: 150, spd: 280, wep: 'TRIPLE VULCAN' },
+      phantom: { name: 'PHANTOM', role: 'INTERCEPTOR', hp: 75, shield: 80, spd: 420, wep: 'PIERCING BEAM' }
     };
+    const id = this.shipsList[this.hangarIndex];
+    const cfg = shipConfigs[id];
 
-    const currentId = this.shipsList[this.hangarIndex];
-    const cfg = shipConfigs[currentId];
+    // Rotating platform under the ship
+    b.fillStyle = C.navy;
+    b.fillRect(70, 114, 100, 4);
+    b.fillStyle = C.blue;
+    for (let i = 0; i < 6; i++) b.fillRect(70 + ((i * 18 + this.frame) % 94), 114, 6, 4);
 
-    // Left/Right Navigation Chevrons
-    ctx.font = 'bold 24px monospace';
-    ctx.fillStyle = '#00f0f0';
-    ctx.fillText('?', 45, 220);
-    ctx.fillText('?', this.vWidth - 45, 220);
+    const bob = Math.round(Math.sin(this.blinkTimer * 3) * 2);
+    K.blit(b, K.sprite('ship-' + id, this.shipSprite(id), SpaceSprites.Palettes[id]), 120, 76 + bob, 4);
+    this.renderThruster(b, 120, 108 + bob, 2);
 
-    // Large Pixel Ship Display in Center
-    const spriteMatrix = SpaceSprites[currentId === 'titan' ? 'Titan' : (currentId === 'phantom' ? 'Phantom' : 'Viper')];
-    const palette = SpaceSprites.Palettes[currentId];
-    SpaceSprites.drawSprite(ctx, spriteMatrix, this.vWidth / 2, 210, 5, palette);
+    // Selection arrows
+    const nudge = this.blink(3) ? 0 : 2;
+    K.text(b, '<', 22 - nudge, 70, C.gold, { scale: 2 });
+    K.text(b, '>', 206 + nudge, 70, C.gold, { scale: 2 });
+    K.text(b, `${this.hangarIndex + 1}/${this.shipsList.length}`, 120, 123, C.grey, { align: 'center' });
 
-    // Animated Thrusters
-    ctx.fillStyle = Math.random() > 0.4 ? '#00ffff' : '#ffffff';
-    ctx.fillRect(this.vWidth / 2 - 8, 255, 16, 6);
+    // Spec card
+    K.panel(b, 20, 136, 200, 94, C.cyan);
+    K.text(b, cfg.name, 120, 143, C.white, { align: 'center' });
+    K.text(b, cfg.role, 120, 153, C.orange, { align: 'center' });
 
-    // Ship Specifications Card
-    ctx.fillStyle = 'rgba(6, 12, 24, 0.85)';
-    ctx.fillRect(40, 290, this.vWidth - 80, 180);
-    ctx.strokeStyle = '#00f0f0';
-    ctx.strokeRect(40, 290, this.vWidth - 80, 180);
+    const rows = [
+      ['HULL', cfg.hp / 150, C.green],
+      ['SHIELD', cfg.shield / 150, C.cyan],
+      ['SPEED', cfg.spd / 420, C.gold]
+    ];
+    rows.forEach(([label, ratio, col], i) => {
+      const y = 168 + i * 12;
+      K.text(b, label, 30, y, C.white);
+      K.gauge(b, 92, y + 1, 30, ratio, col);
+    });
+    K.text(b, 'WEAPON', 30, 206, C.white);
+    K.text(b, cfg.wep, 92, 206, C.pink);
 
-    ctx.font = 'bold 15px monospace';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(cfg.name, this.vWidth / 2, 320);
-
-    ctx.font = '9px monospace';
-    ctx.fillStyle = '#ffaa00';
-    ctx.fillText(cfg.role, this.vWidth / 2, 340);
-
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#00f0f0';
-    ctx.font = '10px monospace';
-    ctx.fillText(`• HULL INTEGRITY:  ${cfg.hp}%`, 70, 375);
-    ctx.fillText(`• ENERGY SHIELD:   ${cfg.shield}%`, 70, 400);
-    ctx.fillText(`• SUB-LIGHT SPEED: ${cfg.spd}`, 70, 425);
-    ctx.fillText(`• DEFAULT WEAPON:  ${cfg.wep}`, 70, 450);
-
-    // Launch Button
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#33ffaa';
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText('[ PRESS ENTER OR TAP TO LAUNCH ]', this.vWidth / 2, 515);
-
-    ctx.fillStyle = '#667788';
-    ctx.font = '8px monospace';
-    ctx.fillText('PRESS ESC OR X TO RETURN TO TITLE', this.vWidth / 2, 550);
+    if (this.blink(2)) K.text(b, 'PUSH START TO LAUNCH', 120, 246, C.green, { align: 'center' });
+    K.text(b, 'MODE: ' + this.engine.gameMode.replace('_', ' ').toUpperCase(), 120, 262, C.white, { align: 'center' });
+    K.text(b, 'ESC = BACK', 120, 290, C.grey, { align: 'center' });
   }
 
-  // --- 4. SECTOR MISSION BRIEFING CUTSCENE ---
-  renderBriefingScreen(ctx) {
-    ctx.fillStyle = 'rgba(4, 6, 12, 0.85)';
-    ctx.fillRect(0, 0, this.vWidth, this.vHeight);
+  // --- 4. STAGE BRIEFING ---
+  renderBriefingScreen(b) {
+    const K = PixelKit, C = K.C;
+    const cx = 120, cy = 82, r = 40;
 
-    ctx.textAlign = 'center';
+    // Radar scope
+    K.circle(b, cx, cy, r, C.darkGreen);
+    K.circle(b, cx, cy, Math.round(r * 0.66), C.darkGreen, true);
+    K.circle(b, cx, cy, Math.round(r * 0.33), C.darkGreen, true);
+    K.line(b, cx - r, cy, cx + r, cy, C.darkGreen);
+    K.line(b, cx, cy - r, cx, cy + r, C.darkGreen);
+    const angle = this.blinkTimer * 3;
+    K.line(b, cx, cy, cx + Math.cos(angle) * r, cy + Math.sin(angle) * r, C.green);
+    // Enemy blips
+    for (let i = 0; i < 5; i++) {
+      const a = i * 1.7 + 0.6, d = 12 + ((i * 7) % 24);
+      if (Math.floor(this.blinkTimer * 4 + i) % 3 !== 0) {
+        b.fillStyle = C.red;
+        b.fillRect(Math.round(cx + Math.cos(a) * d) - 1, Math.round(cy + Math.sin(a) * d) - 1, 2, 2);
+      }
+    }
 
-    // Sector Radar Circle
-    ctx.strokeStyle = '#00f0f0';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(this.vWidth / 2, 200, 65, 0, Math.PI * 2);
-    ctx.stroke();
+    const wave = String(this.engine.wave).padStart(2, '0');
+    K.text(b, `STAGE ${wave}`, 120, 140, C.cyan, { scale: 3, align: 'center', shadow: C.navy });
+    K.text(b, 'ASTEROID FRONTIER', 120, 172, C.white, { align: 'center' });
+    K.text(b, 'FIGHTER: ' + this.engine.selectedShip.toUpperCase(), 120, 186, C.grey, { align: 'center' });
+    if (this.blink(4)) K.text(b, 'WARNING! SQUADRONS INBOUND', 120, 202, C.red, { align: 'center' });
 
-    // Sweeping Radar Line
-    const angle = Date.now() * 0.004;
-    ctx.beginPath();
-    ctx.moveTo(this.vWidth / 2, 200);
-    ctx.lineTo(this.vWidth / 2 + Math.cos(angle) * 65, 200 + Math.sin(angle) * 65);
-    ctx.stroke();
-
-    ctx.font = 'bold 20px monospace';
-    ctx.fillStyle = '#ffff00';
-    ctx.fillText(`SECTOR ${String(this.engine.wave).padStart(2, '0')}: ASTEROID FRONTIER`, this.vWidth / 2, 320);
-
-    ctx.font = '11px monospace';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(`FIGHTER: ${this.engine.selectedShip.toUpperCase()} MK-I`, this.vWidth / 2, 355);
-
-    ctx.fillStyle = '#ff0055';
-    ctx.fillText('THREAT LEVEL: HIGH // SQUADRONS APPROACHING', this.vWidth / 2, 385);
-
-    // Countdown
     const remaining = Math.max(1, Math.ceil(this.engine.briefingDuration - this.engine.briefingTimer));
-    ctx.font = 'bold 24px monospace';
-    ctx.fillStyle = '#00ffff';
-    ctx.fillText(`LAUNCH IN ${remaining}...`, this.vWidth / 2, 450);
-
-    ctx.font = '8px monospace';
-    ctx.fillStyle = '#667788';
-    ctx.fillText('[ TAP OR PRESS SPACE TO LAUNCH IMMEDIATELY ]', this.vWidth / 2, 520);
+    K.text(b, 'READY', 120, 228, C.gold, { scale: 2, align: 'center' });
+    K.text(b, String(remaining), 120, 250, C.white, { scale: 2, align: 'center' });
+    K.text(b, 'PUSH START TO LAUNCH', 120, 290, C.grey, { align: 'center' });
   }
 
-  // --- 5. 8-BIT & 16-BIT IN-GAME COMBAT RENDERING ---
-  renderCombat(ctx) {
-    // Screen Shake
+  // --- 5. COMBAT ---
+  renderCombat(b) {
+    b.save();
     if (this.engine.shake > 0) {
-      const shakeX = (Math.random() - 0.5) * this.engine.shake;
-      const shakeY = (Math.random() - 0.5) * this.engine.shake;
-      ctx.translate(shakeX, shakeY);
+      const sx = Math.round((Math.random() - 0.5) * this.engine.shake / 2);
+      const sy = Math.round((Math.random() - 0.5) * this.engine.shake / 2);
+      b.translate(sx, sy);
     }
 
-    // Powerups
-    this.renderPowerups(ctx);
+    this.renderPowerups(b);
+    this.renderAsteroids(b);
+    this.renderEnemies(b);
+    if (this.engine.boss) this.renderBoss(b, this.engine.boss);
+    this.engine.playerBullets.forEach(bl => this.renderPlayerBullet(b, bl));
+    this.engine.enemyBullets.forEach(bl => this.renderEnemyBullet(b, bl));
+    if (!this.engine.isGameOver) this.renderPlayer(b, this.engine.player);
+    this.renderParticles(b);
+    b.restore();
 
-    // Asteroids
-    this.renderAsteroids(ctx);
+    this.renderHUD(b);
 
-    // Enemies
-    this.renderEnemies(ctx);
-
-    // Boss
-    if (this.engine.boss) {
-      this.renderBoss(ctx, this.engine.boss);
-    }
-
-    // Bullets (Pixel Glow)
-    this.engine.playerBullets.forEach(b => this.renderPlayerBullet(ctx, b));
-    this.engine.enemyBullets.forEach(b => this.renderEnemyBullet(ctx, b));
-
-    // Player
-    if (!this.engine.isGameOver) {
-      this.renderPlayer(ctx, this.engine.player);
-    }
-
-    // Particles
-    this.renderParticles(ctx);
-
-    // Pixel HUD
-    this.renderHUD(ctx);
-
-    // Overlays
-    if (this.engine.isGameOver) {
-      this.renderGameOverOverlay(ctx);
-    } else if (this.engine.waveCleared) {
-      this.renderWaveClearedOverlay(ctx);
-    } else if (this.engine.isPaused) {
-      this.renderPauseOverlay(ctx);
-    }
+    if (this.engine.isGameOver) this.renderGameOverOverlay(b);
+    else if (this.engine.waveCleared) this.renderWaveClearedOverlay(b);
+    else if (this.engine.isPaused) this.renderPauseOverlay(b);
   }
 
-  renderPlayer(ctx, p) {
-    ctx.save();
-    ctx.translate(p.x, p.y);
+  renderThruster(b, x, y, scale = 1) {
+    const C = PixelKit.C;
+    const long = (this.frame >> 2) % 2 === 0;
+    b.fillStyle = C.white;
+    b.fillRect(x - scale, y, scale * 2, scale);
+    b.fillStyle = C.gold;
+    b.fillRect(x - scale, y + scale, scale * 2, scale);
+    b.fillStyle = C.orange;
+    b.fillRect(x - Math.max(1, scale >> 1), y + scale * 2, Math.max(1, scale), long ? scale * 2 : scale);
+  }
 
-    if (p.invulnerableTimer > 0 && Math.floor(p.invulnerableTimer * 12) % 2 === 0) {
-      ctx.globalAlpha = 0.4;
-    }
+  renderPlayer(b, p) {
+    const K = PixelKit, C = K.C;
+    // Classic invulnerability flicker: skip drawing on alternate frames
+    if (p.invulnerableTimer > 0 && (this.frame >> 2) % 2 === 0) return;
 
-    // 8-Bit Pixel Ship Rendering
-    const spriteMatrix = SpaceSprites[this.engine.selectedShip === 'titan' ? 'Titan' : (this.engine.selectedShip === 'phantom' ? 'Phantom' : 'Viper')];
-    const palette = SpaceSprites.Palettes[this.engine.selectedShip];
-    SpaceSprites.drawSprite(ctx, spriteMatrix, 0, 0, 2.2, palette);
+    const x = this.lx(p.x), y = this.lx(p.y);
+    const id = this.engine.selectedShip;
+    K.blit(b, K.sprite('ship-' + id, this.shipSprite(id), SpaceSprites.Palettes[id]), x, y, 1);
+    this.renderThruster(b, x, y + 8, 1);
 
-    // Chunky Engine Thruster Flame
-    ctx.fillStyle = Math.random() > 0.4 ? '#00f0f0' : '#ffffff';
-    ctx.fillRect(-4, 18, 8, 4);
-
-    // Deflector Shield (Pixel Bubble)
     if (p.shield > 0) {
-      ctx.strokeStyle = '#00f0f0';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(0, 0, p.radius + 6, 0, Math.PI * 2);
-      ctx.stroke();
+      const low = p.shield / p.maxShield < 0.3;
+      if (!low || this.blink(6)) K.circle(b, x, y, this.lx(p.radius + 8), C.aqua, true);
     }
-
-    ctx.restore();
   }
 
-  renderPlayerBullet(ctx, b) {
-    if (b.isMissile) {
-      ctx.fillStyle = '#ffff00';
-      ctx.fillRect(b.x - 3, b.y - 5, 6, 10);
-      ctx.fillStyle = '#ff5500';
-      ctx.fillRect(b.x - 2, b.y + 5, 4, 3);
+  renderPlayerBullet(b, bl) {
+    const C = PixelKit.C;
+    const x = this.lx(bl.x), y = this.lx(bl.y);
+    if (bl.isMissile) {
+      b.fillStyle = C.gold;
+      b.fillRect(x - 1, y - 2, 2, 4);
+      b.fillStyle = (this.frame >> 1) % 2 ? C.orange : C.red;
+      b.fillRect(x - 1, y + 2, 2, 2);
     } else {
-      ctx.fillStyle = b.color;
-      ctx.fillRect(b.x - 2, b.y - 8, 4, 16);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(b.x - 1, b.y - 6, 2, 12);
+      b.fillStyle = bl.color;
+      b.fillRect(x - 1, y - 3, 3, 6);
+      b.fillStyle = C.white;
+      b.fillRect(x, y - 3, 1, 6);
     }
   }
 
-  renderEnemyBullet(ctx, b) {
-    ctx.fillStyle = b.color;
-    ctx.fillRect(b.x - 3, b.y - 3, 6, 6);
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(b.x - 1, b.y - 1, 2, 2);
+  renderEnemyBullet(b, bl) {
+    const x = this.lx(bl.x), y = this.lx(bl.y);
+    b.fillStyle = bl.color;
+    if ((this.frame >> 2) % 2 === 0) {
+      b.fillRect(x - 1, y - 2, 3, 5);
+      b.fillRect(x - 2, y - 1, 5, 3);
+    } else {
+      b.fillRect(x - 2, y - 2, 5, 5);
+    }
+    b.fillStyle = PixelKit.C.white;
+    b.fillRect(x, y, 1, 1);
   }
 
-  renderEnemies(ctx) {
-    const isFlap = Math.floor(Date.now() / 150) % 2 === 0;
-
+  renderEnemies(b) {
+    const K = PixelKit, S = SpaceSprites, P = S.Palettes;
+    const flap = (this.frame >> 3) % 2 === 0;
     this.engine.enemies.forEach(e => {
+      const x = this.lx(e.x), y = this.lx(e.y);
+      const flash = e.hitFlash > 0;
       if (e.type === 'scout') {
-        const sprite = isFlap ? SpaceSprites.Scout_F1 : SpaceSprites.Scout_F2;
-        SpaceSprites.drawSprite(ctx, sprite, e.x, e.y, 2, SpaceSprites.Palettes.scout);
+        K.blit(b, K.sprite(flap ? 'scout1' : 'scout2', flap ? S.Scout_F1 : S.Scout_F2, P.scout, { flash }), x, y, 1);
       } else if (e.type === 'striker') {
-        SpaceSprites.drawSprite(ctx, SpaceSprites.Striker, e.x, e.y, 2, SpaceSprites.Palettes.striker);
+        K.blit(b, K.sprite('striker', S.Striker, P.striker, { flash }), x, y, 1);
       } else if (e.type === 'gunship') {
-        SpaceSprites.drawSprite(ctx, SpaceSprites.Gunship, e.x, e.y, 2.2, SpaceSprites.Palettes.gunship);
+        K.blit(b, K.sprite('gunship', S.Gunship, P.gunship, { flash }), x, y, 1);
       }
     });
   }
 
-  renderBoss(ctx, b) {
-    // 64x48 Modular Pixel Boss
-    SpaceSprites.drawSprite(ctx, SpaceSprites.BossCore, b.x, b.y, 3, SpaceSprites.Palettes.boss);
+  renderBoss(b, boss) {
+    const K = PixelKit, S = SpaceSprites, C = K.C;
+    const x = this.lx(boss.x), y = this.lx(boss.y);
+    const flash = boss.hitFlash > 0;
+    if (boss.wingsAlive !== false) {
+      K.blit(b, K.sprite('bosswing', S.BossWing, S.Palettes.boss, { flash }), x - 34, y + 2, 2);
+      K.blit(b, K.sprite('bosswing', S.BossWing, S.Palettes.boss, { flash, flipH: true }), x + 34, y + 2, 2);
+    }
+    K.blit(b, K.sprite('bosscore', S.BossCore, S.Palettes.boss, { flash }), x, y, 2);
 
-    // Pulsing Core Reactor
-    if (Math.floor(Date.now() / 120) % 2 === 0) {
-      ctx.fillStyle = b.enraged ? '#ff0033' : '#ffff00';
-      ctx.fillRect(b.x - 6, b.y + 4, 12, 12);
+    // Pulsing reactor core
+    if ((this.frame >> 3) % 2 === 0) {
+      b.fillStyle = boss.enraged ? C.red : C.gold;
+      b.fillRect(x - 3, y + 1, 6, 6);
+      b.fillStyle = C.white;
+      b.fillRect(x - 1, y + 3, 2, 2);
     }
   }
 
-  renderAsteroids(ctx) {
+  renderAsteroids(b) {
+    const K = PixelKit, S = SpaceSprites;
     this.engine.asteroids.forEach(a => {
-      ctx.save();
-      ctx.translate(a.x, a.y);
-      ctx.rotate(a.rot);
-      SpaceSprites.drawSprite(ctx, SpaceSprites.AsteroidLarge, 0, 0, a.isFragment ? 1.2 : 2.2, SpaceSprites.Palettes.asteroid);
-      ctx.restore();
+      // Quantise rotation to quarter turns so pixels stay on the grid
+      const rot = ((Math.round((a.rot || 0) / (Math.PI / 2)) % 4) + 4) % 4;
+      const small = a.isFragment;
+      const cv = K.sprite(small ? 'ast-s' : 'ast-l', small ? S.AsteroidSmall : S.AsteroidLarge, S.Palettes.asteroid, { rot });
+      K.blit(b, cv, this.lx(a.x), this.lx(a.y), 1);
     });
   }
 
-  renderPowerups(ctx) {
-    const labels = { weapon: 'UP', shield: 'SHLD', bomb: 'BOMB', health: 'HP', score: '+500' };
-    const colors = { weapon: '#00ffff', shield: '#33ffaa', bomb: '#ff33ff', health: '#ff3344', score: '#ffff00' };
-
+  renderPowerups(b) {
+    const K = PixelKit, C = K.C;
+    const letters = { weapon: 'P', shield: 'S', bomb: 'B', health: 'H', score: '$' };
+    const colors = { weapon: C.cyan, shield: C.green, bomb: C.pink, health: C.red, score: C.gold };
     this.engine.powerups.forEach(pu => {
-      ctx.save();
-      ctx.translate(pu.x, pu.y);
-
-      ctx.fillStyle = '#0a101d';
-      ctx.strokeStyle = colors[pu.type] || '#00ffff';
-      ctx.lineWidth = 2;
-      ctx.fillRect(-12, -12, 24, 24);
-      ctx.strokeRect(-12, -12, 24, 24);
-
-      ctx.font = 'bold 7px monospace';
-      ctx.fillStyle = colors[pu.type] || '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(labels[pu.type] || 'UP', 0, 0);
-
-      ctx.restore();
+      const x = this.lx(pu.x) - 6, y = this.lx(pu.y) - 6;
+      const col = colors[pu.type] || C.cyan;
+      const on = (this.frame >> 3) % 2 === 0;
+      b.fillStyle = C.black;
+      b.fillRect(x, y, 13, 13);
+      K.box(b, x, y, 13, 13, on ? col : C.white);
+      K.box(b, x + 1, y + 1, 11, 11, C.darkGrey);
+      K.text(b, letters[pu.type] || 'P', x + 4, y + 3, on ? C.white : col);
     });
   }
 
-  renderParticles(ctx) {
+  renderParticles(b) {
+    const K = PixelKit, S = SpaceSprites;
     this.engine.particles.forEach(pt => {
+      const x = this.lx(pt.x), y = this.lx(pt.y);
       if (pt.type === 'debris') {
-        // 3-Frame 8-Bit Pixel Explosion
-        let matrix = SpaceSprites.Explosion_F1;
-        if (pt.life < 0.25) matrix = SpaceSprites.Explosion_F2;
-        if (pt.life < 0.12) matrix = SpaceSprites.Explosion_F3;
-        SpaceSprites.drawSprite(ctx, matrix, pt.x, pt.y, 2, SpaceSprites.Palettes.explosion);
+        let key = 'exp1', m = S.Explosion_F1;
+        if (pt.life < 0.25) { key = 'exp2'; m = S.Explosion_F2; }
+        if (pt.life < 0.12) { key = 'exp3'; m = S.Explosion_F3; }
+        K.blit(b, K.sprite(key, m, S.Palettes.explosion), x, y, 1);
       } else if (pt.type === 'shockwave') {
-        ctx.strokeStyle = pt.color;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, pt.radius, 0, Math.PI * 2);
-        ctx.stroke();
+        K.circle(b, x, y, this.lx(pt.radius), pt.color, (pt.alpha ?? 1) < 0.5);
       } else {
-        ctx.fillStyle = pt.color;
-        ctx.fillRect(pt.x, pt.y, pt.radius * 2, pt.radius * 2);
+        const size = Math.max(1, Math.round((pt.radius || 1) / 2));
+        b.fillStyle = pt.color;
+        b.fillRect(x, y, size, size);
       }
     });
   }
 
-  // --- 16-BIT ARCADE HUD ---
-  renderHUD(ctx) {
+  // --- ARCADE HUD ---
+  renderHUD(b) {
+    const K = PixelKit, C = K.C, S = SpaceSprites;
     const p = this.engine.player;
+    const score = String(this.engine.score).padStart(6, '0');
+    const hi = String(Math.max(this.engine.highScore, this.engine.score)).padStart(6, '0');
 
-    // Header Background
-    ctx.fillStyle = 'rgba(4, 6, 12, 0.9)';
-    ctx.fillRect(0, 0, this.vWidth, 38);
-    ctx.strokeStyle = '#1e3048';
-    ctx.strokeRect(0, 0, this.vWidth, 38);
-
-    ctx.font = 'bold 10px monospace';
-    ctx.fillStyle = '#00f0f0';
-    ctx.textAlign = 'left';
-    ctx.fillText(`1UP: ${String(this.engine.score).padStart(6, '0')}`, 14, 16);
-
-    ctx.fillStyle = '#888888';
-    ctx.fillText(`HIGH: ${String(Math.max(this.engine.highScore, this.engine.score)).padStart(6, '0')}`, 14, 30);
-
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffff00';
-    ctx.fillText(`SECTOR ${String(this.engine.wave).padStart(2, '0')}`, this.vWidth / 2, 16);
+    b.fillStyle = C.black;
+    b.fillRect(0, 0, this.LW, 22);
+    if (this.blink(2)) K.text(b, '1UP', 8, 2, C.red);
+    K.text(b, score, 8, 11, C.white);
+    K.text(b, 'HI-SCORE', 120, 2, C.red, { align: 'center' });
+    K.text(b, hi, 120, 11, C.white, { align: 'center' });
+    K.text(b, 'STAGE', 232, 2, C.red, { align: 'right' });
+    K.text(b, String(this.engine.wave).padStart(2, '0'), 232, 11, C.white, { align: 'right' });
 
     if (this.engine.combo > 1) {
-      ctx.fillStyle = '#ffaa00';
       const mult = Math.min(5, 1 + Math.floor(this.engine.combo / 4));
-      ctx.fillText(`COMBO x${mult}`, this.vWidth / 2, 30);
+      K.text(b, `COMBO X${mult}`, 120, 26, C.orange, { align: 'center', shadow: C.black });
     }
 
-    // Mini Pixel Ship Lives
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#ff3344';
-    ctx.fillText(`SHIPS: ${'? '.repeat(Math.max(0, p.lives))}`, this.vWidth - 14, 16);
-
-    ctx.fillStyle = '#ff33ff';
-    ctx.fillText(`NOVA: ${'¦ '.repeat(Math.max(0, p.bombs))}`, this.vWidth - 14, 30);
-
-    // Boss Bar
     if (this.engine.boss) {
       const boss = this.engine.boss;
-      const bW = this.vWidth - 80;
-      const bRatio = Math.max(0, boss.hp / boss.maxHp);
-
-      ctx.fillStyle = '#110008';
-      ctx.fillRect(40, 46, bW, 10);
-      ctx.strokeStyle = '#ff0055';
-      ctx.strokeRect(40, 46, bW, 10);
-
-      ctx.fillStyle = boss.enraged ? '#ff0033' : '#ff0066';
-      ctx.fillRect(41, 47, (bW - 2) * bRatio, 8);
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 8px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(`BOSS DREADNOUGHT: ${Math.round(bRatio * 100)}%`, this.vWidth / 2, 42);
+      const ratio = Math.max(0, boss.hp / boss.maxHp);
+      K.text(b, 'BOSS', 8, 36, boss.enraged && this.blink(6) ? C.white : C.red);
+      K.gauge(b, 36, 37, 49, ratio, boss.enraged ? C.red : C.magenta);
     }
 
-    // Bottom Health & Shield Gauges
-    const barY = this.vHeight - 18;
+    // Bottom status bar
+    const by = this.LH - 18;
+    b.fillStyle = C.black;
+    b.fillRect(0, by - 2, this.LW, 20);
+    b.fillStyle = C.navy;
+    b.fillRect(0, by - 2, this.LW, 1);
 
-    // Hull Bar
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(14, barY, 80, 8);
-    ctx.fillStyle = p.hp > 30 ? '#00f080' : '#ff3344';
-    ctx.fillRect(14, barY, 80 * (p.hp / p.maxHp), 8);
-    ctx.strokeStyle = '#333333';
-    ctx.strokeRect(14, barY, 80, 8);
+    const lowHp = p.hp / p.maxHp < 0.3;
+    K.text(b, 'HP', 4, by, lowHp && this.blink(6) ? C.white : C.red);
+    K.gauge(b, 18, by + 1, 10, p.hp / p.maxHp, lowHp ? C.red : C.green);
+    K.text(b, 'SH', 4, by + 9, C.cyan);
+    K.gauge(b, 18, by + 10, 10, p.shield / p.maxShield, C.aqua);
 
-    // Shield Bar
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(104, barY, 80, 8);
-    ctx.fillStyle = '#00f0f0';
-    ctx.fillRect(104, barY, 80 * (p.shield / p.maxShield), 8);
-    ctx.strokeStyle = '#333333';
-    ctx.strokeRect(104, barY, 80, 8);
+    // Spare ships and nova bombs as icons
+    const shipIcon = K.sprite('mini-' + this.engine.selectedShip, S.MiniShip, S.Palettes[this.engine.selectedShip]);
+    for (let i = 0; i < Math.min(5, Math.max(0, p.lives)); i++) b.drawImage(shipIcon, 64 + i * 9, by);
+    const bombIcon = K.sprite('mini-bomb', S.MiniBomb, S.Palettes.gunship);
+    for (let i = 0; i < Math.min(5, Math.max(0, p.bombs)); i++) b.drawImage(bombIcon, 64 + i * 9, by + 9);
 
-    ctx.font = '7px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(`HULL: ${Math.max(0, Math.round(p.hp))}%`, 14, barY - 3);
-    ctx.fillText(`SHIELD: ${Math.round(p.shield)}%`, 104, barY - 3);
-
-    // Weapon Tier
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#00ffff';
-    ctx.fillText(`TIER ${p.weaponTier}/4 [${this.engine.selectedShip.toUpperCase()}]`, this.vWidth - 14, barY + 5);
+    K.text(b, 'PWR', 200, by, C.gold, { align: 'right' });
+    for (let i = 0; i < 4; i++) {
+      b.fillStyle = i < p.weaponTier ? C.gold : C.darkGrey;
+      b.fillRect(204 + i * 8, by + 1, 6, 5);
+    }
+    K.text(b, this.engine.selectedShip.toUpperCase(), 236, by + 9, C.grey, { align: 'right' });
   }
 
-  renderGameOverOverlay(ctx) {
-    ctx.fillStyle = 'rgba(4, 6, 12, 0.88)';
-    ctx.fillRect(0, 0, this.vWidth, this.vHeight);
-
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 26px monospace';
-    ctx.fillStyle = '#ff0055';
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = '#ff0055';
-    ctx.fillText('GAME OVER', this.vWidth / 2, this.vHeight / 2 - 50);
-
-    ctx.font = '12px monospace';
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowBlur = 0;
-    ctx.fillText(`FINAL SCORE: ${this.engine.score}`, this.vWidth / 2, this.vHeight / 2 - 10);
-    ctx.fillText(`SECTORS REACHED: ${this.engine.wave}`, this.vWidth / 2, this.vHeight / 2 + 15);
-
-    ctx.fillStyle = '#00f0f0';
-    ctx.fillText('[ PRESS ENTER OR TAP TO PLAY AGAIN ]', this.vWidth / 2, this.vHeight / 2 + 65);
-    ctx.fillStyle = '#667788';
-    ctx.font = '9px monospace';
-    ctx.fillText('PRESS ESC TO RETURN TO MAIN MENU', this.vWidth / 2, this.vHeight / 2 + 95);
+  renderOverlayBackdrop(b) {
+    b.fillStyle = PixelKit.dither(b);
+    b.fillRect(0, 22, this.LW, this.LH - 42);
   }
 
-  renderWaveClearedOverlay(ctx) {
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 22px monospace';
-    ctx.fillStyle = '#33ffaa';
-    ctx.fillText(`SECTOR ${this.engine.wave} CLEARED!`, this.vWidth / 2, this.vHeight / 2 - 20);
-
-    ctx.font = '10px monospace';
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText('+1000 SECTOR CLEAR BONUS', this.vWidth / 2, this.vHeight / 2 + 10);
-    ctx.fillText('WARP CORES CHARGING...', this.vWidth / 2, this.vHeight / 2 + 30);
+  renderGameOverOverlay(b) {
+    const K = PixelKit, C = K.C;
+    this.renderOverlayBackdrop(b);
+    K.panel(b, 30, 100, 180, 110, C.red);
+    K.text(b, 'GAME OVER', 120, 112, C.red, { scale: 2, align: 'center', shadow: C.navy });
+    K.text(b, 'SCORE', 50, 140, C.white);
+    K.text(b, String(this.engine.score).padStart(6, '0'), 190, 140, C.gold, { align: 'right' });
+    K.text(b, 'STAGE', 50, 152, C.white);
+    K.text(b, String(this.engine.wave).padStart(2, '0'), 190, 152, C.gold, { align: 'right' });
+    if (this.engine.score > 0 && this.engine.score >= this.engine.highScore && this.blink(4)) {
+      K.text(b, 'NEW HIGH SCORE!', 120, 168, C.green, { align: 'center' });
+    }
+    if (this.blink(2)) K.text(b, 'PUSH START', 120, 184, C.cyan, { align: 'center' });
+    K.text(b, 'ESC = MENU', 120, 196, C.grey, { align: 'center' });
   }
 
-  renderPauseOverlay(ctx) {
-    ctx.fillStyle = 'rgba(4, 6, 12, 0.75)';
-    ctx.fillRect(0, 0, this.vWidth, this.vHeight);
+  renderWaveClearedOverlay(b) {
+    const K = PixelKit, C = K.C;
+    K.text(b, `STAGE ${String(this.engine.wave).padStart(2, '0')}`, 120, 120, C.white, { scale: 2, align: 'center', shadow: C.navy });
+    K.text(b, 'CLEAR!', 120, 140, C.green, { scale: 3, align: 'center', shadow: C.navy });
+    if (this.blink(4)) K.text(b, 'BONUS 1000 PTS', 120, 172, C.gold, { align: 'center' });
+  }
 
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 22px monospace';
-    ctx.fillStyle = '#ffff00';
-    ctx.fillText('MISSION PAUSED', this.vWidth / 2, this.vHeight / 2 - 20);
-
-    ctx.font = '11px monospace';
-    ctx.fillStyle = '#aaaaaa';
-    ctx.fillText('[ PRESS P OR ESC TO RESUME ]', this.vWidth / 2, this.vHeight / 2 + 15);
+  renderPauseOverlay(b) {
+    const K = PixelKit, C = K.C;
+    this.renderOverlayBackdrop(b);
+    K.text(b, 'PAUSE', 120, 130, C.gold, { scale: 3, align: 'center', shadow: C.navy });
+    if (this.blink(2)) K.text(b, 'PRESS P TO RESUME', 120, 166, C.white, { align: 'center' });
   }
 }
 
