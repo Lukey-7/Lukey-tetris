@@ -151,7 +151,9 @@ class TetrisEngine {
     this.score = 0;
     this.level = 1;
     this.startingLevel = 1;
-    this.gameMode = 'marathon'; // 'marathon' | 'sprint40' | 'blitz2min'
+    this.gameMode = 'marathon'; // 'marathon' | 'sprint40' | 'blitz2min' | 'zen' | 'daily'
+    this.rngState = null;       // seeded RNG state for the daily challenge (null = Math.random)
+    this.dailyKey = null;
     this.isGameWon = false;
     this.lines = 0;
     this.combos = -1;
@@ -201,6 +203,8 @@ class TetrisEngine {
   // --- 7-Bag Randomizer ---
 
   getAvailablePieceTypes() {
+    // Daily challenge always uses the classic 7 so everyone gets the same sequence
+    if (this.gameMode === 'daily') return ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
     const settings = this.storage.getSettings();
     const mode = settings.pieceMode || 'extended';
     if (mode === 'classic') {
@@ -217,10 +221,44 @@ class TetrisEngine {
     const pieces = this.getAvailablePieceTypes().slice();
     // Fisher-Yates Shuffle
     for (let i = pieces.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(this.random() * (i + 1));
       [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
     }
     return pieces;
+  }
+
+  // Seeded mulberry32 for the daily challenge; state is saved so resuming keeps the sequence
+  random() {
+    if (this.rngState === null) return Math.random();
+    this.rngState = (this.rngState + 0x6D2B79F5) | 0;
+    let t = this.rngState;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  static todayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
+  static seedFromString(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h | 0;
+  }
+
+  // Zen mode: instead of topping out, wipe the board and keep going
+  handleTopOut() {
+    if (this.gameMode === 'zen') {
+      this.board = this.createEmptyBoard();
+      this.audio.playLevelUp();
+      return;
+    }
+    this.gameOver();
   }
 
   getNextPieceType() {
@@ -243,6 +281,14 @@ class TetrisEngine {
     const settings = this.storage.getSettings();
     this.startingLevel = startingLevel || settings.startingLevel || 1;
     this.gameMode = gameMode || settings.gameMode || 'marathon';
+    if (this.gameMode === 'daily') {
+      this.startingLevel = 1;
+      this.dailyKey = TetrisEngine.todayKey();
+      this.rngState = TetrisEngine.seedFromString('lukey-daily-' + this.dailyKey);
+    } else {
+      this.dailyKey = null;
+      this.rngState = null;
+    }
 
     this.board = this.createEmptyBoard();
     this.score = 0;
@@ -300,6 +346,8 @@ class TetrisEngine {
     this.combos = saved.combos ?? -1;
     this.gameMode = saved.gameMode || 'marathon';
     this.startingLevel = saved.startingLevel || 1;
+    this.rngState = saved.rngState ?? null;
+    this.dailyKey = saved.dailyKey || null;
     this.b2b = saved.b2b || false;
     this.elapsedSeconds = saved.elapsedSeconds || 0;
 
@@ -340,7 +388,9 @@ class TetrisEngine {
         b2b: this.b2b,
         elapsedSeconds: this.elapsedSeconds,
         gameMode: this.gameMode,
-        startingLevel: this.startingLevel
+        startingLevel: this.startingLevel,
+        rngState: this.rngState,
+        dailyKey: this.dailyKey
       });
     }
   }
@@ -398,9 +448,9 @@ class TetrisEngine {
     // Record piece generation for memory & history stats
     this.storage.recordPieceGenerated(type);
 
-    // Check immediate spawn collision -> Game Over
+    // Check immediate spawn collision -> Game Over (Zen clears the board instead)
     if (this.checkCollision(this.currentPiece.x, this.currentPiece.y, this.currentPiece.rotation, this.currentPiece.type)) {
-      this.gameOver();
+      this.handleTopOut();
     }
   }
 
@@ -551,8 +601,8 @@ class TetrisEngine {
       this.lockResets = 0;
       this.clearLockTimer();
       if (this.checkCollision(spawnX, spawnY, 0, temp)) {
-        this.gameOver();
-        return true;
+        this.handleTopOut();
+        if (this.isGameOver) return true;
       }
     }
 
@@ -800,9 +850,12 @@ class TetrisEngine {
     this.audio.playGameOver();
 
     // Save final stats; only Marathon runs go on the high-score leaderboard
-    const result = this.gameMode === 'marathon'
-      ? this.storage.saveScore(this.score, this.level, this.lines, this.elapsedSeconds)
-      : { isNewHighScore: false, rank: -1 };
+    let result = { isNewHighScore: false, rank: -1 };
+    if (this.gameMode === 'marathon') {
+      result = this.storage.saveScore(this.score, this.level, this.lines, this.elapsedSeconds);
+    } else if (this.gameMode === 'daily' && this.dailyKey) {
+      result = { isNewHighScore: this.storage.saveDailyRecord(this.dailyKey, this.score), rank: -1, mode: 'daily' };
+    }
     this.recordSessionStats();
     this.storage.clearActiveGame();
 

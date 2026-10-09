@@ -53,6 +53,8 @@ class RetroStorage {
         elapsedSeconds: state.elapsedSeconds || 0,
         gameMode: state.gameMode,
         startingLevel: state.startingLevel,
+        rngState: state.rngState,
+        dailyKey: state.dailyKey,
         savedAt: Date.now()
       };
       localStorage.setItem(STORAGE_KEYS.ACTIVE_GAME, JSON.stringify(payload));
@@ -325,6 +327,24 @@ class RetroStorage {
       return true; // New record
     }
     return false;
+  }
+
+  // --- Daily Challenge Record (best score for one calendar day) ---
+
+  getDailyRecord(dayKey) {
+    if (!this.isAvailable) return 0;
+    try {
+      const rec = JSON.parse(localStorage.getItem('retro_tetris_daily_record_v1'));
+      return rec && rec.day === dayKey ? rec.score : 0;
+    } catch (e) { return 0; }
+  }
+
+  saveDailyRecord(dayKey, score) {
+    if (!this.isAvailable || score <= this.getDailyRecord(dayKey)) return false;
+    try {
+      localStorage.setItem('retro_tetris_daily_record_v1', JSON.stringify({ day: dayKey, score }));
+      return true;
+    } catch (e) { return false; }
   }
 }
 

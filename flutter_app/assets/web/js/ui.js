@@ -35,6 +35,7 @@ class TetrisUI {
     this.initEngineCallbacks();
     this.initKeyboard();
     this.initTouchControls();
+    this.initSwipeControls();
     this.initWindowControls();
     this.initModals();
     this.initPomodoro();
@@ -159,6 +160,11 @@ class TetrisUI {
     const sfxToggle = document.getElementById('sfx-toggle');
     if (sfxToggle) sfxToggle.checked = s.sfxEnabled;
 
+    const bgmVolSlider = document.getElementById('bgm-volume-slider');
+    if (bgmVolSlider) bgmVolSlider.value = Math.round((s.bgmVolume ?? 0.3) * 100);
+    const sfxVolSlider = document.getElementById('sfx-volume-slider');
+    if (sfxVolSlider) sfxVolSlider.value = Math.round((s.sfxVolume ?? 0.55) * 100);
+
     const pomoToggle = document.getElementById('pomo-toggle');
     if (pomoToggle) pomoToggle.checked = s.pomodoro && s.pomodoro.enabled;
   }
@@ -216,7 +222,7 @@ class TetrisUI {
         document.getElementById('final-lines-val').textContent = this.engine.lines;
         const newRecordBanner = document.getElementById('new-record-banner');
         if (newRecordBanner) {
-          newRecordBanner.textContent = '★ NEW HIGH SCORE! ★';
+          newRecordBanner.textContent = res.mode === 'daily' ? '★ NEW DAILY BEST! ★' : '★ NEW HIGH SCORE! ★';
           newRecordBanner.style.display = res.isNewHighScore ? 'block' : 'none';
         }
         this.gameOverOverlay.classList.add('active');
@@ -509,6 +515,74 @@ class TetrisUI {
       clearInterval(this.arrIntervals[dir]);
       delete this.arrIntervals[dir];
     }
+  }
+
+  // --- Swipe Gestures on the Board (phones / tablets) ---
+  // Drag sideways to move one column per cell width, drag down to soft drop,
+  // flick down to hard drop, flick up to hold, tap to rotate.
+
+  initSwipeControls() {
+    const canvas = this.canvas;
+    if (!canvas) return;
+    canvas.style.touchAction = 'none';
+
+    let start = null;
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      e.preventDefault();
+      this.audio.resume();
+      const cell = canvas.getBoundingClientRect().width / 10;
+      start = { x: e.clientX, y: e.clientY, lastX: e.clientX, lastY: e.clientY, t: performance.now(), cell, moved: false };
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone */ }
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!start || this.engine.isPaused || this.engine.isGameOver) return;
+      e.preventDefault();
+      const { cell } = start;
+
+      // Sideways: one move per cell width dragged
+      while (e.clientX - start.lastX >= cell) {
+        this.engine.moveRight();
+        start.lastX += cell;
+        start.moved = true;
+      }
+      while (start.lastX - e.clientX >= cell) {
+        this.engine.moveLeft();
+        start.lastX -= cell;
+        start.moved = true;
+      }
+      // Downward drag: soft drop one row per cell height
+      while (e.clientY - start.lastY >= cell) {
+        this.engine.softDrop();
+        start.lastY += cell;
+        start.moved = true;
+      }
+    });
+
+    const finish = (e) => {
+      if (!start) return;
+      const s = start;
+      start = null;
+      if (e.type === 'pointercancel' || this.engine.isPaused || this.engine.isGameOver) return;
+
+      const dx = e.clientX - s.x;
+      const dy = e.clientY - s.y;
+      const dt = Math.max(1, performance.now() - s.t);
+      const vy = dy / dt; // px per ms
+
+      if (vy > 0.9 && dy > s.cell * 2 && Math.abs(dy) > Math.abs(dx)) {
+        this.engine.hardDrop();
+      } else if (vy < -0.6 && -dy > s.cell * 2 && Math.abs(dy) > Math.abs(dx)) {
+        this.engine.hold();
+      } else if (!s.moved && Math.abs(dx) < s.cell * 0.6 && Math.abs(dy) < s.cell * 0.6 && dt < 300) {
+        this.engine.rotateCW();
+      }
+    };
+
+    canvas.addEventListener('pointerup', finish);
+    canvas.addEventListener('pointercancel', finish);
   }
 
   // --- Touch & Click Controls ---
@@ -864,6 +938,22 @@ class TetrisUI {
         this.applySettings(this.settings);
       });
     }
+
+    const bindVolume = (id, key, preview) => {
+      const slider = document.getElementById(id);
+      if (!slider) return;
+      slider.addEventListener('input', (e) => {
+        this.settings[key] = parseInt(e.target.value, 10) / 100;
+        this.applySettings(this.settings);
+      });
+      // Save once the drag ends and play a sample so the new level can be heard
+      slider.addEventListener('change', () => {
+        this.storage.saveSettings(this.settings);
+        if (preview) preview();
+      });
+    };
+    bindVolume('bgm-volume-slider', 'bgmVolume');
+    bindVolume('sfx-volume-slider', 'sfxVolume', () => this.audio.playRotate());
   }
 
   renderKeybindsList() {
@@ -1480,6 +1570,12 @@ class TetrisUI {
 
     const blitzEl = document.getElementById('hub-blitz-pb');
     if (blitzEl) blitzEl.textContent = blitzRecord ? `${blitzRecord} PTS` : '--';
+
+    const dailyEl = document.getElementById('hub-daily-pb');
+    if (dailyEl) {
+      const dailyBest = this.storage.getDailyRecord(TetrisEngine.todayKey());
+      dailyEl.textContent = dailyBest ? `${dailyBest} PTS` : '--';
+    }
 
     const marathonEl = document.getElementById('hub-marathon-pb');
     if (marathonEl) marathonEl.textContent = (highScores.length > 0) ? `${highScores[0].score} PTS` : '--';

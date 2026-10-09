@@ -6,6 +6,8 @@
   <title>Tetris 89 (Mini Popup)</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -170,6 +172,8 @@
           <option value="marathon">Classic Marathon (Endless)</option>
           <option value="sprint40">40 Lines Sprint (Time Attack)</option>
           <option value="blitz2min">2-Minute Blitz (Score Rush)</option>
+          <option value="zen">Zen (No Game Over)</option>
+          <option value="daily">Daily Challenge (Same Pieces Today)</option>
         </select>
       </div>
 
@@ -252,8 +256,18 @@
       </div>
 
       <div class="setting-row">
+        <span>Music Volume:</span>
+        <input type="range" id="bgm-volume-slider" min="0" max="100" value="30" style="width: 100px;">
+      </div>
+
+      <div class="setting-row">
         <span>Retro Sound Effects:</span>
         <input type="checkbox" id="sfx-toggle" checked>
+      </div>
+
+      <div class="setting-row">
+        <span>Effects Volume:</span>
+        <input type="range" id="sfx-volume-slider" min="0" max="100" value="55" style="width: 100px;">
       </div>
 
       <div class="modal-section-title">KEYBOARD CUSTOMIZER (CLICK TO REBIND)</div>

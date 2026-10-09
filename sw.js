@@ -1,5 +1,5 @@
 // Lukey-Arcade Offline Cache Service Worker
-const CACHE_NAME = 'lukey-arcade-v5';
+const CACHE_NAME = 'lukey-arcade-v6';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -15,7 +15,10 @@ const ASSETS_TO_CACHE = [
   './js/space_audio.js',
   './js/space_engine.js',
   './js/space_ui.js',
-  './manifest.json'
+  './manifest.json',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/favicon-32.png'
 ];
 
 self.addEventListener('install', (event) => {

@@ -6,7 +6,8 @@
   <title>Retro Classic Tetris - Mini Floating Popup</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='45' height='45' fill='%2300f0f0'/><rect x='50' width='45' height='45' fill='%23f0a000'/><rect y='50' width='45' height='45' fill='%2300f000'/><rect x='50' y='50' width='45' height='45' fill='%23f00000'/></svg>">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -142,6 +143,52 @@
           </div>
           <button class="retro-btn primary btn-launch-mode" data-mode="marathon" data-shapes="pentomino" style="width: 100%;">
             <span>▶</span> PLAY WILD
+          </button>
+        </div>
+      </div>
+
+      <!-- Mode 5: Zen -->
+      <div class="mode-card">
+        <div>
+          <div class="mode-card-header">
+            <span class="mode-tag" style="color: #88ccff; border-color: #88ccff;">RELAX</span>
+            <span>🧘</span>
+          </div>
+          <div class="mode-card-title">ZEN MODE</div>
+          <div class="mode-card-desc">
+            No game over and no speed-ups. If the stack reaches the top, the board wipes clean and you keep playing.
+          </div>
+        </div>
+        <div>
+          <div class="mode-card-stat">
+            <span>GAME OVER:</span>
+            <b>NEVER</b>
+          </div>
+          <button class="retro-btn primary btn-launch-mode" data-mode="zen" style="width: 100%;">
+            <span>▶</span> PLAY ZEN
+          </button>
+        </div>
+      </div>
+
+      <!-- Mode 6: Daily Challenge -->
+      <div class="mode-card">
+        <div>
+          <div class="mode-card-header">
+            <span class="mode-tag" style="color: #ff77cc; border-color: #ff77cc;">DAILY</span>
+            <span>📅</span>
+          </div>
+          <div class="mode-card-title">DAILY CHALLENGE</div>
+          <div class="mode-card-desc">
+            Same piece sequence for everyone today (classic 7, level 1). Beat your best before midnight!
+          </div>
+        </div>
+        <div>
+          <div class="mode-card-stat">
+            <span>TODAY'S BEST:</span>
+            <b id="hub-daily-pb">--</b>
+          </div>
+          <button class="retro-btn primary btn-launch-mode" data-mode="daily" style="width: 100%;">
+            <span>▶</span> PLAY DAILY
           </button>
         </div>
       </div>
@@ -423,6 +470,8 @@
           <option value="marathon">Classic Marathon (Endless)</option>
           <option value="sprint40">40 Lines Sprint (Time Attack)</option>
           <option value="blitz2min">2-Minute Blitz (Score Rush)</option>
+          <option value="zen">Zen (No Game Over)</option>
+          <option value="daily">Daily Challenge (Same Pieces Today)</option>
         </select>
       </div>
 
@@ -514,8 +563,18 @@
       </div>
 
       <div class="setting-row">
+        <span>Music Volume:</span>
+        <input type="range" id="bgm-volume-slider" min="0" max="100" value="30" style="width: 100px;">
+      </div>
+
+      <div class="setting-row">
         <span>Retro Sound Effects:</span>
         <input type="checkbox" id="sfx-toggle" checked>
+      </div>
+
+      <div class="setting-row">
+        <span>Effects Volume:</span>
+        <input type="range" id="sfx-volume-slider" min="0" max="100" value="55" style="width: 100px;">
       </div>
 
       <div class="modal-section-title">KEYBOARD CUSTOMIZER (CLICK TO REBIND)</div>

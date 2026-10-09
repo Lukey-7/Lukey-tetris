@@ -31,10 +31,19 @@ jobs:
 
       - name: Sync Web Assets to Flutter App
         run: |
-          mkdir -p flutter_app/assets/web/css flutter_app/assets/web/js
-          cp index.html popup.html manifest.json sw.js flutter_app/assets/web/
+          mkdir -p flutter_app/assets/web/css flutter_app/assets/web/js flutter_app/assets/web/icons
+          cp index.html popup.html space.html space_popup.html manifest.json sw.js flutter_app/assets/web/
           cp -r css/* flutter_app/assets/web/css/
           cp -r js/* flutter_app/assets/web/js/
+          cp -r icons/* flutter_app/assets/web/icons/
+
+      - name: Generate Android Gradle Project
+        run: |
+          # Generate the standard Gradle setup for the current Flutter version, then
+          # layer it under our own manifest, MainActivity, styles and launcher icons
+          # (--update=none never overwrites files already in the repo).
+          flutter create --platforms=android --org com.lukey --project-name tetris "$RUNNER_TEMP/scaffold"
+          cp -r --update=none "$RUNNER_TEMP/scaffold/android/." flutter_app/android/
 
       - name: Install Flutter Dependencies
         run: |
@@ -59,9 +68,9 @@ jobs:
           tag_name: v1.0.0
           name: "Lukey-Tetris v1.0.0 (Retro Arcade & Companion Widget)"
           body: |
-            ??? **Lukey-Tetris Android Release**
-            
-            ### ? Features:
+            **Lukey-Tetris Android Release**
+
+            ### Features:
             - Authentic 8-bit classic Tetris gameplay with CRT filter & 4 retro themes.
             - All 14 custom polyominoes & pentominoes (U-Shape, Plus, Big-T, Corner, Long-5).
             - 4 Game Modes (40-Lines Sprint, 2-Min Blitz, Classic Marathon, Pentomino Wild).
@@ -69,8 +78,8 @@ jobs:
             - Coding Pomodoro focus timer with persistent task scratchpad.
             - Zero data loss on future APK upgrades.
             
-            ### ?? Installation:
-            Download `Lukey-Tetris.apk` below and install it directly on your Android phone!
+            ### Installation:
+            Download `app-release.apk` below and install it directly on your Android phone!
           files: flutter_app/build/app/outputs/flutter-apk/app-release.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
