@@ -12,8 +12,25 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml'
 };
 
+const ROOT = path.resolve(__dirname);
+
 const server = http.createServer((req, res) => {
-  let filePath = path.join(__dirname, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
+  let pathname;
+  try {
+    pathname = decodeURIComponent(req.url.split('?')[0]);
+  } catch (e) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    return res.end('400 Bad Request', 'utf-8');
+  }
+  if (pathname.endsWith('/')) pathname += 'index.html';
+
+  // Resolve inside the project folder only; block ../ traversal
+  const filePath = path.resolve(ROOT, '.' + path.posix.normalize('/' + pathname));
+  if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    return res.end('403 Forbidden', 'utf-8');
+  }
+
   const extname = String(path.extname(filePath)).toLowerCase();
   const contentType = MIME_TYPES[extname] || 'application/octet-stream';
 

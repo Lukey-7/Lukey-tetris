@@ -258,6 +258,7 @@ class TetrisEngine {
     this.isPaused = false;
     this.isClearingLines = false;
     this.clearingRowIndices = [];
+    this.cancelPendingTimers();
 
     this.sessionStats = {
       singleClears: 0,
@@ -296,14 +297,18 @@ class TetrisEngine {
     this.score = saved.score || 0;
     this.level = saved.level || 1;
     this.lines = saved.lines || 0;
-    this.combos = saved.combos || -1;
+    this.combos = saved.combos ?? -1;
+    this.gameMode = saved.gameMode || 'marathon';
+    this.startingLevel = saved.startingLevel || 1;
     this.b2b = saved.b2b || false;
     this.elapsedSeconds = saved.elapsedSeconds || 0;
 
     this.isGameOver = false;
+    this.isGameWon = false;
     this.isPaused = false;
     this.isClearingLines = false;
     this.clearingRowIndices = [];
+    this.cancelPendingTimers();
 
     this.refillQueue();
     if (!this.currentPiece) {
@@ -333,7 +338,9 @@ class TetrisEngine {
         lines: this.lines,
         combos: this.combos,
         b2b: this.b2b,
-        elapsedSeconds: this.elapsedSeconds
+        elapsedSeconds: this.elapsedSeconds,
+        gameMode: this.gameMode,
+        startingLevel: this.startingLevel
       });
     }
   }
@@ -341,6 +348,7 @@ class TetrisEngine {
   pause() {
     if (this.isGameOver) return;
     this.isPaused = true;
+    this.clearLockTimer();
     this.audio.stopBGM();
     this.save();
     this.onStateChange();
@@ -350,6 +358,7 @@ class TetrisEngine {
     if (this.isGameOver) return;
     this.isPaused = false;
     this.lastDropTime = performance.now();
+    if (this.isOnGround()) this.startLockTimer();
     this.audio.startBGM();
     this.onStateChange();
   }
@@ -541,6 +550,10 @@ class TetrisEngine {
       };
       this.lockResets = 0;
       this.clearLockTimer();
+      if (this.checkCollision(spawnX, spawnY, 0, temp)) {
+        this.gameOver();
+        return true;
+      }
     }
 
     this.canHold = false;
@@ -582,10 +595,19 @@ class TetrisEngine {
   startLockTimer() {
     if (this.lockTimer) return;
     this.lockTimer = setTimeout(() => {
+      this.lockTimer = null;
       if (this.isOnGround() && !this.isPaused && !this.isGameOver) {
         this.lockPiece();
       }
     }, this.lockDelayMs);
+  }
+
+  cancelPendingTimers() {
+    this.clearLockTimer();
+    if (this.clearTimer) {
+      clearTimeout(this.clearTimer);
+      this.clearTimer = null;
+    }
   }
 
   clearLockTimer() {
@@ -632,7 +654,8 @@ class TetrisEngine {
       this.audio.playLineClear(fullRows.length);
       this.onLineClearAnimation(fullRows);
 
-      setTimeout(() => {
+      this.clearTimer = setTimeout(() => {
+        this.clearTimer = null;
         this.executeLineClear(fullRows);
         this.isClearingLines = false;
         this.clearingRowIndices = [];
@@ -696,6 +719,7 @@ class TetrisEngine {
       this.audio.stopBGM();
       this.audio.playTetrisFanfare();
       const isNewPB = this.storage.saveSprintRecord(this.elapsedSeconds);
+      this.recordSessionStats();
       this.storage.clearActiveGame();
       this.onGameWinCallback({ mode: 'sprint40', timeSpent: this.elapsedSeconds, isNewPB });
       this.onStateChange();
@@ -737,6 +761,7 @@ class TetrisEngine {
       this.audio.stopBGM();
       this.audio.playTetrisFanfare();
       const isNewPB = this.storage.saveBlitzRecord(this.score);
+      this.recordSessionStats();
       this.storage.clearActiveGame();
       this.onGameWinCallback({ mode: 'blitz2min', score: this.score, isNewPB });
       this.onStateChange();
@@ -762,17 +787,23 @@ class TetrisEngine {
     }
   }
 
+  recordSessionStats() {
+    this.sessionStats.lines = this.lines;
+    this.sessionStats.timeSpent = this.elapsedSeconds;
+    this.storage.updateAllTimeStats(this.sessionStats);
+  }
+
   gameOver() {
     this.isGameOver = true;
     this.clearLockTimer();
     this.audio.stopBGM();
     this.audio.playGameOver();
 
-    // Save final stats & score
-    const result = this.storage.saveScore(this.score, this.level, this.lines, this.elapsedSeconds);
-    this.sessionStats.lines = this.lines;
-    this.sessionStats.timeSpent = this.elapsedSeconds;
-    this.storage.updateAllTimeStats(this.sessionStats);
+    // Save final stats; only Marathon runs go on the high-score leaderboard
+    const result = this.gameMode === 'marathon'
+      ? this.storage.saveScore(this.score, this.level, this.lines, this.elapsedSeconds)
+      : { isNewHighScore: false, rank: -1 };
+    this.recordSessionStats();
     this.storage.clearActiveGame();
 
     this.onGameOverCallback(result);

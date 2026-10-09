@@ -216,6 +216,7 @@ class TetrisUI {
         document.getElementById('final-lines-val').textContent = this.engine.lines;
         const newRecordBanner = document.getElementById('new-record-banner');
         if (newRecordBanner) {
+          newRecordBanner.textContent = '★ NEW HIGH SCORE! ★';
           newRecordBanner.style.display = res.isNewHighScore ? 'block' : 'none';
         }
         this.gameOverOverlay.classList.add('active');
@@ -234,7 +235,8 @@ class TetrisUI {
         document.getElementById('final-lines-val').textContent = this.engine.lines;
         const newRecordBanner = document.getElementById('new-record-banner');
         if (newRecordBanner) {
-          newRecordBanner.textContent = res.isNewPB ? '★ NEW PERSONAL BEST! ★' : '★ 40 LINES CLEARED! ★';
+          const doneText = res.mode === 'sprint40' ? '★ 40 LINES CLEARED! ★' : '★ TIME UP! ★';
+          newRecordBanner.textContent = res.isNewPB ? '★ NEW PERSONAL BEST! ★' : doneText;
           newRecordBanner.style.display = 'block';
         }
         this.gameOverOverlay.classList.add('active');
@@ -249,8 +251,15 @@ class TetrisUI {
     if (this.pillScore) this.pillScore.textContent = this.engine.score;
     if (this.pillLevel) this.pillLevel.textContent = this.engine.level;
 
-    const best = this.storage.getBestScore();
-    if (this.highScoreVal) this.highScoreVal.textContent = Math.max(best, this.engine.score);
+    // Best score and hub stats are read from localStorage, so refresh them at most
+    // once a second during play (updateHUD runs on every move/gravity tick)
+    const now = performance.now();
+    const refreshStored = this.cachedBest === undefined || this.engine.isGameOver || now - this.lastHubRefresh > 1000;
+    if (refreshStored) {
+      this.lastHubRefresh = now;
+      this.cachedBest = this.storage.getBestScore();
+    }
+    if (this.highScoreVal) this.highScoreVal.textContent = Math.max(this.cachedBest, this.engine.score);
 
     // Pause overlay state and button text updates
     if (this.pauseOverlay) {
@@ -269,7 +278,7 @@ class TetrisUI {
     if (demoPause) demoPause.innerHTML = this.engine.isPaused ? '<span>▶️</span> RESUME' : '<span>⏸️</span> PAUSE / PLAY';
 
     // Synchronize Hub Dashboard Stats
-    this.updateHubStats();
+    if (refreshStored) this.updateHubStats();
   }
 
   showScorePopup(added, lines, combo) {
@@ -305,11 +314,17 @@ class TetrisUI {
         return;
       }
 
-      // Don't intercept if typing in modal input
-      if (['INPUT', 'SELECT'].includes(e.target.tagName)) return;
+      // Don't intercept if typing in an input, textarea (e.g. pomodoro notes) or select
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) || e.target.isContentEditable) return;
 
       const code = e.code;
       const binds = this.settings.keybinds;
+
+      // Settings / stats modal open: keys shouldn't drive the game behind it
+      if (this.modalBackdrop && this.modalBackdrop.classList.contains('active')) {
+        if (code === 'Escape' && this.closeModal) this.closeModal();
+        return;
+      }
 
       // Instant Restart keybinding
       if (binds.restart && binds.restart.includes(code)) {
@@ -450,6 +465,7 @@ class TetrisUI {
 
     // Auto-pause and auto-save when user leaves, hides, or closes the webpage
     const handleExitOrHide = () => {
+      this.clearAllInput();
       if (!this.engine.isGameOver) {
         this.engine.pause();
         this.engine.save();
@@ -477,6 +493,11 @@ class TetrisUI {
         this.engine.save();
       }
     }, 1500);
+  }
+
+  clearAllInput() {
+    ['left', 'right', 'down'].forEach((dir) => this.clearDas(dir));
+    this.keyState = {};
   }
 
   clearDas(dir) {
@@ -689,6 +710,7 @@ class TetrisUI {
     if (openSettings) {
       openSettings.addEventListener('click', () => {
         if (!this.engine.isPaused) this.engine.pause();
+        this.clearAllInput();
         this.renderKeybindsList();
         this.settingsModal.classList.add('active');
         this.modalBackdrop.classList.add('active');
@@ -698,13 +720,14 @@ class TetrisUI {
     if (openStats) {
       openStats.addEventListener('click', () => {
         if (!this.engine.isPaused) this.engine.pause();
+        this.clearAllInput();
         this.renderStatsModal();
         this.statsModal.classList.add('active');
         this.modalBackdrop.classList.add('active');
       });
     }
 
-    const closeModal = () => {
+    const closeModal = this.closeModal = () => {
       if (this.settingsModal) this.settingsModal.classList.remove('active');
       if (this.statsModal) this.statsModal.classList.remove('active');
       if (this.modalBackdrop) this.modalBackdrop.classList.remove('active');
@@ -888,9 +911,8 @@ class TetrisUI {
 
   initPomodoro() {
     const pomoBadge = document.getElementById('pomo-badge');
-    if (!pomoBadge) return;
 
-    pomoBadge.addEventListener('click', () => {
+    pomoBadge?.addEventListener('click', () => {
       const p = this.settings.pomodoro;
       if (p.state === 'idle') {
         p.state = 'work';
@@ -909,11 +931,9 @@ class TetrisUI {
     setInterval(() => {
       const p = this.settings.pomodoro;
       if (!p || !p.enabled) {
-        pomoBadge.classList.remove('active');
+        this.updatePomodoroUI();
         return;
       }
-
-      pomoBadge.classList.add('active');
 
       if (p.state !== 'idle') {
         p.remainingSeconds = Math.max(0, p.remainingSeconds - 1);
@@ -938,10 +958,26 @@ class TetrisUI {
   }
 
   updatePomodoroUI() {
+    const p = this.settings.pomodoro;
+    if (!p) return;
+
+    const mins = Math.floor(p.remainingSeconds / 60);
+    const secs = p.remainingSeconds % 60;
+    const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+    // Keep the settings checkbox and on-page hub station in sync with the timer
+    const pomoToggle = document.getElementById('pomo-toggle');
+    if (pomoToggle) pomoToggle.checked = !!p.enabled;
+    const hubClock = document.getElementById('hub-pomo-clock');
+    if (hubClock) hubClock.textContent = timeStr;
+    const hubStatus = document.getElementById('hub-pomo-status');
+    if (hubStatus) {
+      hubStatus.textContent = !p.enabled || p.state === 'idle' ? 'IDLE' : (p.state === 'break' ? 'BREAK TIME' : 'WORK SESSION');
+    }
+
     const pomoBadge = document.getElementById('pomo-badge');
     if (!pomoBadge) return;
-    const p = this.settings.pomodoro;
-    if (!p || !p.enabled) {
+    if (!p.enabled) {
       pomoBadge.classList.remove('active');
       return;
     }
@@ -952,9 +988,6 @@ class TetrisUI {
       pomoBadge.classList.remove('break');
     }
 
-    const mins = Math.floor(p.remainingSeconds / 60);
-    const secs = p.remainingSeconds % 60;
-    const timeStr = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     const icon = p.state === 'break' ? '☕ BREAK' : (p.state === 'work' ? '🍅 WORK' : '🍅 POMO');
     pomoBadge.innerHTML = `${icon} ${timeStr}`;
   }

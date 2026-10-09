@@ -51,6 +51,8 @@ class RetroStorage {
         combos: state.combos,
         b2b: state.b2b,
         elapsedSeconds: state.elapsedSeconds || 0,
+        gameMode: state.gameMode,
+        startingLevel: state.startingLevel,
         savedAt: Date.now()
       };
       localStorage.setItem(STORAGE_KEYS.ACTIVE_GAME, JSON.stringify(payload));
