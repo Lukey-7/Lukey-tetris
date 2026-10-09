@@ -4,7 +4,7 @@ import 'package:vibration/vibration.dart';
 class HapticService {
   static Future<void> trigger(String type) async {
     try {
-      final hasVibrator = await Vibration.hasVibrator() ?? false;
+      final hasVibrator = (await Vibration.hasVibrator()) == true;
       if (type == 'heavy' || type == 'tetris') {
         if (hasVibrator) {
           Vibration.vibrate(pattern: [0, 40, 30, 40]);
