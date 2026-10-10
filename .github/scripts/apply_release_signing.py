@@ -15,7 +15,7 @@ if kts.exists():
     path = kts
     signing_block = """    signingConfigs {
         create("release") {
-            val props = java.util.Properties()
+            val props = Properties()
             val propsFile = rootProject.file("key.properties")
             if (propsFile.exists()) propsFile.inputStream().use { props.load(it) }
             keyAlias = props.getProperty("keyAlias")
@@ -54,5 +54,9 @@ if "buildTypes {" not in src or debug_line not in src:
 
 src = src.replace("    buildTypes {", signing_block + "    buildTypes {", 1)
 src = src.replace(debug_line, release_line)
+if path == kts and "import java.util.Properties" not in src:
+    # Inside android { } the name `java` resolves to Gradle's java extension,
+    # so java.util.Properties must be imported at the top of the script
+    src = "import java.util.Properties\n\n" + src
 path.write_text(src)
 print(f"Release signing applied to {path}")
