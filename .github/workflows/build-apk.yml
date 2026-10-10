@@ -95,9 +95,12 @@ jobs:
           EXPECTED_SHA256: "78:3B:20:13:97:93:70:19:97:4A:F3:0A:C9:B1:E7:9F:08:A2:BD:F4:4A:66:8D:70:E1:36:F9:4C:47:CB:D6:9E"
         run: |
           APK="flutter_app/build/app/outputs/flutter-apk/lukey-arcade-v${APP_VERSION}.apk"
-          ACTUAL=$(keytool -printcert -jarfile "$APK" | grep -m1 'SHA256:' | sed 's/.*SHA256: *//')
+          # apksigner reads the v2/v3 signature blocks (keytool only understands old JAR signing)
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" | grep -m1 'certificate SHA-256 digest' | sed 's/.*digest: *//')
+          WANT=$(echo "$EXPECTED_SHA256" | tr -d ':' | tr 'A-F' 'a-f')
           echo "APK signed with: $ACTUAL"
-          if [ "$ACTUAL" != "$EXPECTED_SHA256" ]; then
+          if [ -z "$ACTUAL" ] || [ "$ACTUAL" != "$WANT" ]; then
             echo "::error::APK is not signed with the Lukey Arcade release key"
             exit 1
           fi
