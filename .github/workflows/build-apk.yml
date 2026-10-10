@@ -50,36 +50,49 @@ jobs:
           cd flutter_app
           flutter pub get
 
+      - name: Read App Version
+        run: |
+          # pubspec.yaml is the single source of truth, e.g. "version: 1.1.0+2"
+          VERSION=$(grep '^version:' flutter_app/pubspec.yaml | sed -E 's/version: *([0-9.]+).*/\1/')
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          # Keep the in-app update checker in sync with the release tag
+          sed -i "s/currentVersion = '[^']*'/currentVersion = 'v$VERSION'/" flutter_app/lib/services/update_service.dart
+          grep currentVersion flutter_app/lib/services/update_service.dart
+
       - name: Build Release APK
         run: |
           cd flutter_app
           flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk "build/app/outputs/flutter-apk/lukey-arcade-v${APP_VERSION}.apk"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lukey-tetris-apk
-          path: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+          name: lukey-arcade-v${{ env.APP_VERSION }}
+          path: flutter_app/build/app/outputs/flutter-apk/lukey-arcade-v${{ env.APP_VERSION }}.apk
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: v1.0.0
-          name: "Lukey-Tetris v1.0.0 (Retro Arcade & Companion Widget)"
+          tag_name: v${{ env.APP_VERSION }}
+          name: "Lukey Arcade v${{ env.APP_VERSION }}"
+          make_latest: true
           body: |
-            **Lukey-Tetris Android Release**
+            **Lukey Arcade v${{ env.APP_VERSION }}** - Tetris-89 + Star Vanguard
 
-            ### Features:
-            - Authentic 8-bit classic Tetris gameplay with CRT filter & 4 retro themes.
-            - All 14 custom polyominoes & pentominoes (U-Shape, Plus, Big-T, Corner, Long-5).
-            - 4 Game Modes (40-Lines Sprint, 2-Min Blitz, Classic Marathon, Pentomino Wild).
-            - 8-Bit Chiptune Jukebox (Themes A, B, C) with tactile vibration haptic feedback.
-            - Coding Pomodoro focus timer with persistent task scratchpad.
-            - Zero data loss on future APK upgrades.
-            
-            ### Installation:
-            Download `app-release.apk` below and install it directly on your Android phone!
-          files: flutter_app/build/app/outputs/flutter-apk/app-release.apk
+            ### Star Vanguard
+            - Galaga-style formations and dive attacks, named stages, a bonus stage, and a Dreadnought boss with destructible wing pods
+            - Tractor beam: Commanders can capture your fighter - shoot them on the dive to rescue it as a dual fighter
+            - Top-10 Hall of Aces per mode with arcade initials entry and a results screen
+            - True 8-bit pixel graphics and an NES-style chiptune soundtrack
+
+            ### Tetris-89
+            - Classic 7 pieces by default; Sprint, Blitz, Marathon, Zen and Daily Challenge modes
+            - Swipe controls, music/effects volume sliders, Pentomino Wild mode
+
+            ### Installation
+            Download `lukey-arcade-v${{ env.APP_VERSION }}.apk` below and open it on your Android phone.
+          files: flutter_app/build/app/outputs/flutter-apk/lukey-arcade-v${{ env.APP_VERSION }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
