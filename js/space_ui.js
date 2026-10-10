@@ -1,5 +1,5 @@
 /**
- * Nova Strike: 1989 - 8-Bit & 16-Bit UI & Canvas Renderer
+ * Star Vanguard - 8-Bit & 16-Bit UI & Canvas Renderer
  * Retro BIOS Boot Sequence, Title Screen, Ship Hangar, Briefing & Pixel Graphics.
  */
 
@@ -38,7 +38,7 @@ class SpaceUI {
     this.MENU_Y0 = 190;
     this.MENU_STEP = 14;
 
-    this.logo = PixelKit.buildLogo(['NOVA', 'STRIKE'], 4,
+    this.logo = PixelKit.buildLogo(['STAR', 'VANGUARD'], 4,
       ['#fcfc00', '#fca044', '#f83800', '#d800cc', '#6844fc'], '#000000', '#000088');
 
     // Menu Navigation State
@@ -560,7 +560,7 @@ class SpaceUI {
     // Striped arcade logo, gently bobbing
     const bob = Math.round(Math.sin(this.blinkTimer * 2) * 2);
     b.drawImage(this.logo, Math.round(120 - this.logo.width / 2), 34 + bob);
-    K.text(b, '- SECTOR VANGUARD -', 120, 112, C.pink, { align: 'center', shadow: C.navy });
+    K.text(b, '- SECTOR 9 DEFENSE FORCE -', 120, 112, C.pink, { align: 'center', shadow: C.navy });
 
     // Ship preview with flickering thruster
     const ship = this.engine.selectedShip;
@@ -671,7 +671,7 @@ class SpaceUI {
 
     const wave = String(this.engine.wave).padStart(2, '0');
     K.text(b, `STAGE ${wave}`, 120, 140, C.cyan, { scale: 3, align: 'center', shadow: C.navy });
-    K.text(b, 'ASTEROID FRONTIER', 120, 172, C.white, { align: 'center' });
+    K.text(b, this.engine.getStageInfo().name, 120, 172, C.white, { align: 'center' });
     K.text(b, 'FIGHTER: ' + this.engine.selectedShip.toUpperCase(), 120, 186, C.grey, { align: 'center' });
     if (this.blink(4)) K.text(b, 'WARNING! SQUADRONS INBOUND', 120, 202, C.red, { align: 'center' });
 
@@ -701,6 +701,9 @@ class SpaceUI {
     b.restore();
 
     this.renderHUD(b);
+
+    const e = this.engine;
+    if (e.stageBannerTimer > 0 && !e.waveCleared && !e.isGameOver && !e.isPaused) this.renderStageBanner(b);
 
     if (this.engine.isGameOver) this.renderGameOverOverlay(b);
     else if (this.engine.waveCleared) this.renderWaveClearedOverlay(b);
@@ -783,10 +786,23 @@ class SpaceUI {
     const K = PixelKit, S = SpaceSprites, C = K.C;
     const x = this.lx(boss.x), y = this.lx(boss.y);
     const flash = boss.hitFlash > 0;
-    if (boss.wingsAlive !== false) {
-      K.blit(b, K.sprite('bosswing', S.BossWing, S.Palettes.boss, { flash }), x - 34, y + 2, 2);
-      K.blit(b, K.sprite('bosswing', S.BossWing, S.Palettes.boss, { flash, flipH: true }), x + 34, y + 2, 2);
-    }
+    (boss.wings || []).forEach(w => {
+      if (!w.alive) {
+        // Wrecked pod: sparking stump
+        if ((this.frame >> 2) % 3 === 0) {
+          b.fillStyle = C.orange;
+          b.fillRect(x + w.side * 26 - 1, y + 2 + ((this.frame >> 1) % 6), 2, 2);
+        }
+        return;
+      }
+      const opts = { flash: w.flash > 0, flipH: w.side > 0 };
+      K.blit(b, K.sprite('bosswing', S.BossWing, S.Palettes.boss, opts), x + w.side * 34, y + 2, 2);
+      // Damaged pods flicker when low
+      if (w.hp / w.maxHp < 0.3 && this.blink(8)) {
+        b.fillStyle = C.gold;
+        b.fillRect(x + w.side * 34 - 1, y + 2, 2, 2);
+      }
+    });
     K.blit(b, K.sprite('bosscore', S.BossCore, S.Palettes.boss, { flash }), x, y, 2);
 
     // Pulsing reactor core
@@ -834,6 +850,8 @@ class SpaceUI {
         if (pt.life < 0.25) { key = 'exp2'; m = S.Explosion_F2; }
         if (pt.life < 0.12) { key = 'exp3'; m = S.Explosion_F3; }
         K.blit(b, K.sprite(key, m, S.Palettes.explosion), x, y, 1);
+      } else if (pt.type === 'text') {
+        if (pt.life > 0.15 || this.blink(12)) K.text(b, pt.text, x, y - 3, pt.color, { align: 'center', shadow: PixelKit.C.black });
       } else if (pt.type === 'shockwave') {
         K.circle(b, x, y, this.lx(pt.radius), pt.color, (pt.alpha ?? 1) < 0.5);
       } else {
@@ -860,8 +878,8 @@ class SpaceUI {
     K.text(b, 'STAGE', 232, 2, C.red, { align: 'right' });
     K.text(b, String(this.engine.wave).padStart(2, '0'), 232, 11, C.white, { align: 'right' });
 
-    if (this.engine.combo > 1) {
-      const mult = Math.min(5, 1 + Math.floor(this.engine.combo / 4));
+    const mult = Math.min(5, 1 + Math.floor(this.engine.combo / 4));
+    if (mult > 1) {
       K.text(b, `COMBO X${mult}`, 120, 26, C.orange, { align: 'center', shadow: C.black });
     }
 
@@ -899,6 +917,20 @@ class SpaceUI {
     K.text(b, this.engine.selectedShip.toUpperCase(), 236, by + 9, C.grey, { align: 'right' });
   }
 
+  renderStageBanner(b) {
+    const K = PixelKit, C = K.C;
+    const stage = this.engine.stage || this.engine.getStageInfo();
+    if (stage.boss) {
+      if (this.blink(4)) K.text(b, 'WARNING!!', 120, 120, C.red, { scale: 3, align: 'center', shadow: C.navy });
+      K.text(b, 'DREADNOUGHT APPROACHING', 120, 152, C.white, { align: 'center', shadow: C.black });
+      K.text(b, 'DESTROY THE WING PODS', 120, 164, C.orange, { align: 'center', shadow: C.black });
+      return;
+    }
+    K.text(b, `STAGE ${String(this.engine.wave).padStart(2, '0')}`, 120, 128, C.cyan, { scale: 2, align: 'center', shadow: C.navy });
+    K.text(b, stage.name, 120, 148, stage.bonus ? C.gold : C.white, { align: 'center', shadow: C.black });
+    if (stage.bonus) K.text(b, 'SHOOT THEM ALL!', 120, 160, C.green, { align: 'center', shadow: C.black });
+  }
+
   renderOverlayBackdrop(b) {
     b.fillStyle = PixelKit.dither(b);
     b.fillRect(0, 22, this.LW, this.LH - 42);
@@ -922,6 +954,19 @@ class SpaceUI {
 
   renderWaveClearedOverlay(b) {
     const K = PixelKit, C = K.C;
+    const r = this.engine.bonusResult;
+    if (r) {
+      K.text(b, 'BONUS STAGE', 120, 100, C.cyan, { scale: 2, align: 'center', shadow: C.navy });
+      K.text(b, 'NUMBER OF HITS', 120, 132, C.white, { align: 'center' });
+      K.text(b, `${r.hits}/${r.total}`, 120, 144, C.gold, { scale: 2, align: 'center' });
+      if (r.perfect) {
+        if (this.blink(4)) K.text(b, 'PERFECT!', 120, 170, C.green, { scale: 3, align: 'center', shadow: C.navy });
+        K.text(b, 'SPECIAL BONUS 10000 PTS', 120, 200, C.gold, { align: 'center' });
+      } else {
+        K.text(b, `BONUS ${r.bonus} PTS`, 120, 176, C.gold, { align: 'center' });
+      }
+      return;
+    }
     K.text(b, `STAGE ${String(this.engine.wave).padStart(2, '0')}`, 120, 120, C.white, { scale: 2, align: 'center', shadow: C.navy });
     K.text(b, 'CLEAR!', 120, 140, C.green, { scale: 3, align: 'center', shadow: C.navy });
     if (this.blink(4)) K.text(b, 'BONUS 1000 PTS', 120, 172, C.gold, { align: 'center' });

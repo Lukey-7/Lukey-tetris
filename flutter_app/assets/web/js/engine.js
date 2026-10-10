@@ -206,7 +206,7 @@ class TetrisEngine {
     // Daily challenge always uses the classic 7 so everyone gets the same sequence
     if (this.gameMode === 'daily') return ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
     const settings = this.storage.getSettings();
-    const mode = settings.pieceMode || 'extended';
+    const mode = this.pieceOverride || settings.pieceMode || 'classic';
     if (mode === 'classic') {
       return ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
     } else if (mode === 'pentomino') {
@@ -277,7 +277,9 @@ class TetrisEngine {
 
   // --- Game Lifecycle ---
 
-  startNewGame(startingLevel = null, gameMode = null) {
+  startNewGame(startingLevel = null, gameMode = null, pieceOverride = null) {
+    // Per-game shape set (e.g. the Pentomino Wild card) without touching saved settings
+    this.pieceOverride = pieceOverride;
     const settings = this.storage.getSettings();
     this.startingLevel = startingLevel || settings.startingLevel || 1;
     this.gameMode = gameMode || settings.gameMode || 'marathon';
@@ -348,6 +350,7 @@ class TetrisEngine {
     this.startingLevel = saved.startingLevel || 1;
     this.rngState = saved.rngState ?? null;
     this.dailyKey = saved.dailyKey || null;
+    this.pieceOverride = saved.pieceOverride || null;
     this.b2b = saved.b2b || false;
     this.elapsedSeconds = saved.elapsedSeconds || 0;
 
@@ -390,7 +393,8 @@ class TetrisEngine {
         gameMode: this.gameMode,
         startingLevel: this.startingLevel,
         rngState: this.rngState,
-        dailyKey: this.dailyKey
+        dailyKey: this.dailyKey,
+        pieceOverride: this.pieceOverride
       });
     }
   }

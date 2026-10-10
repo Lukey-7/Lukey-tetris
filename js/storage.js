@@ -55,6 +55,7 @@ class RetroStorage {
         startingLevel: state.startingLevel,
         rngState: state.rngState,
         dailyKey: state.dailyKey,
+        pieceOverride: state.pieceOverride,
         savedAt: Date.now()
       };
       localStorage.setItem(STORAGE_KEYS.ACTIVE_GAME, JSON.stringify(payload));
@@ -231,7 +232,8 @@ class RetroStorage {
   getSettings() {
     const defaultSettings = {
       theme: 'gameboy',        // 'gameboy' | 'nes' | 'cyberpunk' | 'matrix'
-      pieceMode: 'extended',   // 'classic' | 'extended' | 'pentomino'
+      settingsVersion: 2,
+      pieceMode: 'classic',    // 'classic' | 'extended' | 'pentomino'
       gameMode: 'marathon',    // 'marathon' | 'sprint40' | 'blitz2min'
       startingLevel: 1,        // 1 to 15
       bgmTrack: 'themeA',      // 'themeA' | 'themeB' | 'themeC'
@@ -273,6 +275,11 @@ class RetroStorage {
       const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       if (!raw) return defaultSettings;
       const parsed = JSON.parse(raw);
+      // v2: classic 7 pieces became the default; move older saves over once
+      if (!parsed.settingsVersion || parsed.settingsVersion < 2) {
+        parsed.pieceMode = 'classic';
+        parsed.settingsVersion = 2;
+      }
       return Object.assign({}, defaultSettings, parsed, {
         pomodoro: Object.assign({}, defaultSettings.pomodoro, parsed.pomodoro),
         keybinds: Object.assign({}, defaultSettings.keybinds, parsed.keybinds)

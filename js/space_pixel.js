@@ -1,5 +1,5 @@
 /**
- * Nova Strike: 1989 - Pixel Toolkit
+ * Star Vanguard - Pixel Toolkit
  * Bitmap 5x7 arcade font, cached sprite blitting, pixel circles and dither patterns.
  * Everything here draws onto a low-resolution buffer that is later scaled up with
  * nearest-neighbour filtering, so every "pixel" is a hard square like real arcade hardware.

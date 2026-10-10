@@ -1,7 +1,29 @@
 /**
- * Nova Strike: 1989 - Core Game Engine
+ * Star Vanguard - Core Game Engine
  * Handles player, enemies, bullets, powerups, boss AI, collision, and wave progression.
+ *
+ * Enemies use Galaga-style behaviour: they fly in along curved entry paths, settle
+ * into a swaying formation at the top of the screen, then break off to dive at the
+ * player and loop back into place.
  */
+
+// Campaign stages repeat every 5 waves; each lap is harder than the last
+const SPACE_STAGES = [
+  { name: 'ASTEROID FRONTIER', roster: { scout: 1 }, asteroids: 4 },
+  { name: 'NEBULA CORRIDOR', roster: { scout: 0.6, striker: 0.4 }, asteroids: 2 },
+  { name: 'IRON ARMADA', roster: { scout: 0.4, striker: 0.35, gunship: 0.25 }, asteroids: 1 },
+  { name: 'BONUS STAGE', bonus: true },
+  { name: 'DREADNOUGHT', boss: true }
+];
+
+// Cubic bezier point
+function bezierPoint(p0, p1, p2, p3, t) {
+  const u = 1 - t;
+  return {
+    x: u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x,
+    y: u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y
+  };
+}
 
 class SpaceEngine {
   constructor(audio) {
@@ -123,11 +145,7 @@ class SpaceEngine {
     this.gameMode = mode;
     this.resetGame();
     this.setShip(this.selectedShip);
-
-    if (mode === 'boss_rush') {
-      this.wave = 5; // Jump straight to Dreadnought Boss!
-      this.setupWave(5);
-    }
+    this.stageBannerTimer = 0; // the briefing screen already announces stage 1
 
     this.gameState = 'BRIEFING';
     this.briefingTimer = 0;
@@ -200,18 +218,49 @@ class SpaceEngine {
     if (this.audio) this.audio.startBGM();
   }
 
+  // --- Stages & Waves ---
+
+  /** Stage definition for a wave number, adjusted for the current game mode. */
+  getStageInfo(waveNum = this.wave) {
+    if (this.gameMode === 'boss_rush') {
+      return { name: 'DREADNOUGHT', boss: true, idx: 4, lap: waveNum - 1 };
+    }
+    const idx = (waveNum - 1) % SPACE_STAGES.length;
+    let stage = SPACE_STAGES[idx];
+    let lap = Math.floor((waveNum - 1) / SPACE_STAGES.length);
+    if (this.gameMode === 'endless') {
+      // Endless: no breather stages, and difficulty ramps every 3 waves
+      if (stage.bonus) stage = SPACE_STAGES[2];
+      lap = Math.floor((waveNum - 1) / 3);
+    }
+    return Object.assign({ idx, lap }, stage);
+  }
+
   setupWave(waveNum) {
     this.wave = waveNum;
     this.waveCleared = false;
     this.waveTransitionTimer = 0;
     this.enemies = [];
     this.waveSpawnQueue = [];
+    this.spawnTimer = 0;
     this.boss = null;
+    this.isBonusStage = false;
+    this.bonusResult = null;
+    this.stageBannerTimer = 2.2;
 
-    // Wave 5, 10, 15 are Boss Battles!
-    if (waveNum % 5 === 0) {
+    const stage = this.getStageInfo(waveNum);
+    this.stage = stage;
+    this.difficulty = stage.lap;
+
+    // Formation that the enemies fly into
+    this.formation = { x: this.width / 2, y: 96, t: 0 };
+    this.diveTimer = 3.0;
+
+    if (stage.boss) {
       if (this.audio) this.audio.playBossAlert();
       this.shake = 15;
+      const hp = 1200 + (waveNum * 400);
+      const wingHp = 260 + waveNum * 70;
       this.boss = {
         x: this.width / 2,
         y: -100,
@@ -219,68 +268,175 @@ class SpaceEngine {
         vx: 80,
         width: 140,
         height: 70,
-        radius: 50,
-        hp: 1200 + (waveNum * 400),
-        maxHp: 1200 + (waveNum * 400),
+        radius: 40,
+        hp,
+        maxHp: hp,
         phase: 1,
         fireTimer: 0,
         attackPattern: 0,
         stateTimer: 0,
         enraged: false,
-        wingsAlive: true
+        // Destructible wing pods shield the core until they are destroyed
+        wings: [
+          { side: -1, hp: wingHp, maxHp: wingHp, alive: true, flash: 0 },
+          { side: 1, hp: wingHp, maxHp: wingHp, alive: true, flash: 0 }
+        ],
+        wingsAlive: true,
+        hitFlash: 0
       };
       return;
     }
 
-    // Normal wave composition: mixture of Scouts, Strikers, Gunships, and Asteroids
-    const count = 12 + waveNum * 4;
+    if (stage.bonus) {
+      this.setupBonusStage();
+      return;
+    }
+
+    // Build the roster for this stage
+    const count = Math.min(32, 16 + stage.lap * 4 + stage.idx * 2);
+    const types = [];
+    const roster = Object.entries(stage.roster);
+    for (let i = 0; i < count; i++) {
+      let r = Math.random(), type = roster[0][0];
+      for (const [t, w] of roster) {
+        if (r < w) { type = t; break; }
+        r -= w;
+      }
+      types.push(type);
+    }
+    // Heavier ships take the back rows, like a Galaga formation
+    const rank = { gunship: 0, striker: 1, scout: 2 };
+    types.sort((a, b) => rank[a] - rank[b]);
+
     this.totalWaveEnemies = count;
     this.enemiesDefeated = 0;
 
-    for (let i = 0; i < count; i++) {
-      let type = 'scout';
-      const rand = Math.random();
-      if (waveNum >= 2 && rand > 0.65) type = 'striker';
-      if (waveNum >= 3 && rand > 0.85) type = 'gunship';
-
+    const cols = 8;
+    const entries = ['left', 'right', 'topL', 'topR'];
+    types.forEach((type, i) => {
+      const row = Math.floor(i / cols), col = i % cols;
+      const group = Math.floor(i / 4);
       this.waveSpawnQueue.push({
-        type: type,
-        delay: 0.8 + i * Math.max(0.35, 1.0 - waveNum * 0.05),
-        spawnSide: i % 2 === 0 ? 'left' : 'right'
+        type,
+        delay: 1.0 + group * 1.5 + (i % 4) * 0.18,
+        slot: { x: (col - (cols - 1) / 2) * 46, y: row * 34 },
+        entry: entries[group % entries.length]
       });
-    }
+    });
 
-    // Spawn 2 to 4 asteroids per wave as dynamic cover/hazards
-    const asteroidCount = Math.min(6, 2 + Math.floor(waveNum / 2));
+    const asteroidCount = Math.min(6, (stage.asteroids || 0) + stage.lap);
     for (let a = 0; a < asteroidCount; a++) {
-      this.spawnAsteroid(false, Math.random() * (this.width - 60) + 30, -50 - a * 120);
+      this.spawnAsteroid(false, Math.random() * (this.width - 60) + 30, -80 - a * 220);
     }
   }
 
-  spawnEnemy(type, side) {
-    const startX = side === 'left' ? 40 + Math.random() * 80 : this.width - 120 + Math.random() * 80;
+  setupBonusStage() {
+    this.isBonusStage = true;
+    this.bonusHits = 0;
+    const groups = 5, perGroup = 8;
+    this.bonusTotal = groups * perGroup;
+    this.totalWaveEnemies = this.bonusTotal;
+    this.enemiesDefeated = 0;
+    for (let g = 0; g < groups; g++) {
+      for (let i = 0; i < perGroup; i++) {
+        this.waveSpawnQueue.push({
+          type: g % 2 === 0 ? 'scout' : 'striker',
+          delay: 1.2 + g * 3.2 + i * 0.16,
+          entry: 'bonus' + g,
+          flyby: true
+        });
+      }
+    }
+  }
+
+  /** Entry/flyby path control points. p3 = null means "fly to my formation slot". */
+  entryPath(entry) {
+    const W = this.width;
+    const mirror = (pts) => pts.map(p => (p ? { x: W - p.x, y: p.y } : p));
+    const paths = {
+      left: [{ x: -30, y: 200 }, { x: 320, y: 620 }, { x: 40, y: 380 }, null],
+      topL: [{ x: 160, y: -30 }, { x: 60, y: 440 }, { x: 420, y: 420 }, null],
+      bonus0: [{ x: -30, y: 120 }, { x: 560, y: 160 }, { x: -80, y: 520 }, { x: W + 40, y: 560 }],
+      bonus2: [{ x: W / 2, y: -30 }, { x: -140, y: 560 }, { x: W + 140, y: 560 }, { x: W / 2, y: -40 }],
+      bonus3: [{ x: -30, y: 560 }, { x: W / 2, y: -220 }, { x: W / 2, y: 760 }, { x: W + 40, y: 100 }]
+    };
+    paths.right = mirror(paths.left);
+    paths.topR = mirror(paths.topL);
+    paths.bonus1 = mirror(paths.bonus0);
+    paths.bonus4 = mirror(paths.bonus3);
+    return paths[entry] || paths.left;
+  }
+
+  slotPosition(e) {
+    const f = this.formation;
+    // Gentle side-to-side sway plus a slow "breathing" spread
+    const spread = 1 + Math.sin(f.t * 0.9) * 0.06;
+    return {
+      x: f.x + Math.sin(f.t * 0.5) * 34 + e.slot.x * spread,
+      y: f.y + e.slot.y * spread
+    };
+  }
+
+  spawnEnemy(spec) {
+    const type = spec.type;
+    const pts = this.entryPath(spec.entry);
     const enemy = {
-      type: type,
-      x: startX,
-      y: -30,
-      vx: (Math.random() - 0.5) * 60,
-      vy: 110 + (this.wave * 8),
+      type,
+      x: pts[0].x,
+      y: pts[0].y,
       radius: type === 'gunship' ? 24 : (type === 'striker' ? 18 : 14),
       hp: type === 'gunship' ? 12 : (type === 'striker' ? 5 : 2),
       maxHp: type === 'gunship' ? 12 : (type === 'striker' ? 5 : 2),
-      fireTimer: Math.random() * 1.5,
-      fireRate: type === 'gunship' ? 1.8 : (type === 'striker' ? 2.2 : 3.0),
+      fireTimer: 2 + Math.random() * 3,
+      fireRate: type === 'gunship' ? 3.6 : (type === 'striker' ? 5.5 : 8.0),
       color: type === 'gunship' ? '#ff0055' : (type === 'striker' ? '#ffaa00' : '#00ffff'),
-      t: Math.random() * Math.PI * 2, // sine motion phase
-      scoreValue: type === 'gunship' ? 250 : (type === 'striker' ? 120 : 60)
+      scoreValue: type === 'gunship' ? 250 : (type === 'striker' ? 120 : 60),
+      slot: spec.slot || { x: 0, y: 0 },
+      state: spec.flyby ? 'flyby' : 'enter',
+      path: { pts, t: 0, dur: spec.flyby ? 3.4 : 2.4 },
+      hitFlash: 0,
+      t: Math.random() * Math.PI * 2
     };
-
-    if (type === 'scout') {
-      enemy.swoopPhase = 0;
-      enemy.initialX = enemy.x;
-    }
-
     this.enemies.push(enemy);
+  }
+
+  startDive(e) {
+    const side = e.x < this.width / 2 ? -1 : 1;
+    const p = this.player;
+    e.state = 'dive';
+    e.shotsFired = 0;
+    e.path = {
+      pts: [
+        { x: e.x, y: e.y },
+        { x: e.x - side * 110, y: e.y - 80 },                       // loop up and out
+        { x: p.x, y: p.y - 140 },                                     // swing toward the player
+        { x: p.x + (Math.random() - 0.5) * 200, y: this.height + 50 } // and out the bottom
+      ],
+      t: 0,
+      dur: Math.max(1.3, 2.2 - this.difficulty * 0.2)
+    };
+  }
+
+  updateFormationAI(dt) {
+    this.formation.t += dt;
+    if (this.isBonusStage || this.boss) return;
+
+    // Launch dive attacks once some of the wave has settled
+    this.diveTimer -= dt;
+    if (this.diveTimer > 0) return;
+    const settled = this.enemies.filter(e => e.state === 'formation' && e.type !== 'gunship');
+    const diving = this.enemies.filter(e => e.state === 'dive').length;
+    const maxDivers = 1 + Math.min(3, this.difficulty + Math.floor(this.stage.idx / 2));
+    if (settled.length && diving < maxDivers) {
+      const leader = settled[Math.floor(Math.random() * settled.length)];
+      this.startDive(leader);
+      // Strikers bring a wingman along
+      if (leader.type === 'striker') {
+        const wingman = settled.find(e => e !== leader && Math.abs(e.slot.y - leader.slot.y) < 40 && Math.abs(e.slot.x - leader.slot.x) < 60);
+        if (wingman) this.startDive(wingman);
+      }
+    }
+    this.diveTimer = Math.max(0.5, 2.0 - this.difficulty * 0.3 - this.stage.idx * 0.2) + Math.random() * 0.8;
   }
 
   spawnAsteroid(isFragment, x, y) {
@@ -331,10 +487,24 @@ class SpaceEngine {
       this.createSparks(ast.x, ast.y, '#aaaaaa', 8);
     });
 
-    // Heavy damage to Boss
+    // Actually destroy whatever the blast killed
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      if (this.enemies[i].hp <= 0) this.destroyEnemy(this.enemies[i], i);
+    }
+    for (let i = this.asteroids.length - 1; i >= 0; i--) {
+      if (this.asteroids[i].hp <= 0) this.destroyAsteroid(this.asteroids[i], i);
+    }
+
+    // Heavy damage to Boss (wing pods take a hit too)
     if (this.boss) {
-      this.boss.hp -= 350;
+      this.boss.wings.forEach(w => {
+        if (!w.alive) return;
+        w.hp -= 150;
+        if (w.hp <= 0) this.destroyBossWing(w);
+      });
+      this.boss.hp -= this.boss.wingsAlive ? 120 : 350;
       this.createSparks(this.boss.x, this.boss.y, '#ff0055', 25);
+      if (this.boss.hp <= 0) this.destroyBoss();
     }
 
     // Giant shockwave particle
@@ -390,6 +560,8 @@ class SpaceEngine {
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt * 45);
     }
+
+    if (this.stageBannerTimer > 0) this.stageBannerTimer -= dt;
 
     // Combo Timer Decay
     if (this.combo > 0) {
@@ -641,40 +813,63 @@ class SpaceEngine {
 
     this.spawnTimer += dt;
     while (this.waveSpawnQueue.length > 0 && this.spawnTimer >= this.waveSpawnQueue[0].delay) {
-      const next = this.waveSpawnQueue.shift();
-      this.spawnEnemy(next.type, next.spawnSide);
+      this.spawnEnemy(this.waveSpawnQueue.shift());
     }
   }
 
   updateEnemies(dt) {
+    this.updateFormationAI(dt);
+
     for (let i = this.enemies.length - 1; i >= 0; i--) {
       const e = this.enemies[i];
       e.t += dt * 2.5;
+      if (e.hitFlash > 0) e.hitFlash -= dt;
 
-      if (e.type === 'scout') {
-        // Swooping sine pattern
-        e.x = e.initialX + Math.sin(e.t) * 75;
-        e.y += e.vy * dt;
-      } else if (e.type === 'striker') {
-        e.x += e.vx * dt;
-        e.y += e.vy * dt * 0.75;
-        if (e.x < 30 || e.x > this.width - 30) e.vx *= -1;
-      } else if (e.type === 'gunship') {
-        // Heavy cruiser slowly enters and maneuvers
-        e.y = Math.min(140, e.y + e.vy * dt * 0.5);
-        e.x += Math.sin(e.t * 0.6) * 60 * dt;
+      if (e.state === 'formation') {
+        const s = this.slotPosition(e);
+        e.x = s.x;
+        e.y = s.y;
+      } else {
+        // Follow the current bezier path (entry, dive, return or bonus flyby)
+        const path = e.path;
+        path.t = Math.min(1, path.t + dt / path.dur);
+        const p3 = path.pts[3] || this.slotPosition(e);
+        const pos = bezierPoint(path.pts[0], path.pts[1], path.pts[2], p3, path.t);
+        e.x = pos.x;
+        e.y = pos.y;
+
+        if (path.t >= 1) {
+          if (e.state === 'flyby') {
+            // Bonus-stage target escaped
+            this.enemies.splice(i, 1);
+            continue;
+          }
+          if (e.state === 'dive') {
+            // Wrap around: re-enter from the top and fly back to the formation slot
+            const s = this.slotPosition(e);
+            e.state = 'return';
+            e.x = s.x;
+            e.y = -40;
+            e.path = { pts: [{ x: s.x, y: -40 }, { x: s.x, y: 30 }, { x: s.x, y: s.y - 40 }, null], t: 0, dur: 1.4 };
+          } else {
+            e.state = 'formation';
+          }
+        }
       }
 
-      // Enemy firing
-      e.fireTimer -= dt;
-      if (e.fireTimer <= 0 && e.y > 20 && e.y < this.height - 100) {
-        e.fireTimer = e.fireRate + Math.random() * 0.5;
-        this.fireEnemyWeapon(e);
-      }
-
-      // Remove when off bottom screen
-      if (e.y > this.height + 40) {
-        this.enemies.splice(i, 1);
+      // Firing: divers shoot on the way down, the formation fires occasionally
+      if (e.state === 'dive') {
+        const shots = e.type === 'striker' ? 2 : 1;
+        if (e.shotsFired < shots && e.path.t > 0.3 + e.shotsFired * 0.2 && e.y < this.player.y - 60) {
+          e.shotsFired++;
+          this.fireEnemyWeapon(e);
+        }
+      } else if (e.state === 'formation') {
+        e.fireTimer -= dt;
+        if (e.fireTimer <= 0) {
+          e.fireTimer = (e.fireRate * (0.7 + Math.random() * 0.6)) / (1 + this.difficulty * 0.25);
+          this.fireEnemyWeapon(e);
+        }
       }
     }
   }
@@ -683,14 +878,14 @@ class SpaceEngine {
     if (this.audio) this.audio.playEnemyShoot();
 
     if (e.type === 'gunship') {
-      // 6-way radial burst
-      for (let k = 0; k < 6; k++) {
-        const ang = (k / 6) * Math.PI * 2 + e.t;
+      // 5-way downward fan
+      for (let k = -2; k <= 2; k++) {
+        const ang = Math.PI / 2 + k * 0.28;
         this.enemyBullets.push({
           x: e.x,
-          y: e.y,
-          vx: Math.cos(ang) * 160,
-          vy: Math.sin(ang) * 160,
+          y: e.y + e.radius,
+          vx: Math.cos(ang) * 170,
+          vy: Math.sin(ang) * 170,
           radius: 3.5,
           color: '#ff0055'
         });
@@ -715,6 +910,8 @@ class SpaceEngine {
     if (!b) return;
 
     b.stateTimer += dt;
+    if (b.hitFlash > 0) b.hitFlash -= dt;
+    b.wings.forEach(w => { if (w.flash > 0) w.flash -= dt; });
 
     // Entry slide-in
     if (b.y < b.targetY) {
@@ -732,8 +929,8 @@ class SpaceEngine {
       b.vx = -Math.abs(b.vx);
     }
 
-    // Enrage phase under 40% HP
-    if (b.hp < b.maxHp * 0.4 && !b.enraged) {
+    // Enrage phase under 40% HP or once both wing pods are gone
+    if ((b.hp < b.maxHp * 0.4 || !b.wingsAlive) && !b.enraged) {
       b.enraged = true;
       b.vx *= 1.4;
       this.shake = 10;
@@ -748,8 +945,9 @@ class SpaceEngine {
       if (this.audio) this.audio.playEnemyShoot();
 
       if (b.attackPattern === 0) {
-        // Double wing spread
-        [-40, 40].forEach(wingOffset => {
+        // Spread fire from each surviving wing pod (the core fires a smaller fan once they're gone)
+        const guns = b.wingsAlive ? b.wings.filter(w => w.alive).map(w => w.side * 68) : [0];
+        guns.forEach(wingOffset => {
           for (let a = -0.3; a <= 0.3; a += 0.2) {
             this.enemyBullets.push({
               x: b.x + wingOffset,
@@ -871,6 +1069,7 @@ class SpaceEngine {
         const e = this.enemies[eIdx];
         if (Math.hypot(b.x - e.x, b.y - e.y) < b.radius + e.radius) {
           e.hp -= b.damage;
+          e.hitFlash = 0.06;
           this.createSparks(b.x, b.y, b.color, 4);
 
           if (e.hp <= 0) {
@@ -881,12 +1080,25 @@ class SpaceEngine {
         }
       }
 
-      // Check vs Boss
+      // Check vs Boss: wing pods first, then the core (armoured while any wing survives)
       if (!bulletHit && this.boss) {
         const boss = this.boss;
-        if (Math.hypot(b.x - boss.x, b.y - boss.y) < b.radius + boss.radius) {
-          boss.hp -= b.damage;
-          this.createSparks(b.x, b.y, '#ff0055', 3);
+        for (const w of boss.wings) {
+          if (!w.alive) continue;
+          if (Math.hypot(b.x - (boss.x + w.side * 68), b.y - (boss.y + 4)) < b.radius + 26) {
+            w.hp -= b.damage;
+            w.flash = 0.06;
+            this.createSparks(b.x, b.y, '#ffaa00', 3);
+            bulletHit = true;
+            if (w.hp <= 0) this.destroyBossWing(w);
+            break;
+          }
+        }
+        if (!bulletHit && Math.hypot(b.x - boss.x, b.y - boss.y) < b.radius + boss.radius) {
+          const shielded = boss.wingsAlive;
+          boss.hp -= b.damage * (shielded ? 0.35 : 1);
+          boss.hitFlash = 0.06;
+          this.createSparks(b.x, b.y, shielded ? '#888888' : '#ff0055', 3);
           bulletHit = true;
 
           if (boss.hp <= 0) {
@@ -936,6 +1148,7 @@ class SpaceEngine {
       // 3. Enemy Ship Collision vs Player (Kamikaze / Collision)
       for (let eIdx = this.enemies.length - 1; eIdx >= 0; eIdx--) {
         const e = this.enemies[eIdx];
+        if (e.state === 'flyby') continue; // bonus-stage targets never attack
         if (Math.hypot(e.x - p.x, e.y - p.y) < e.radius + p.radius) {
           this.damagePlayer(25);
           this.destroyEnemy(e, eIdx);
@@ -1024,16 +1237,37 @@ class SpaceEngine {
     this.combo++;
     this.comboTimer = 3.0;
     const mult = Math.min(5, 1 + Math.floor(this.combo / 4));
-    this.score += enemy.scoreValue * mult;
+    // Divers are worth double, like in Galaga
+    const points = enemy.scoreValue * mult * (enemy.state === 'dive' ? 2 : 1);
+    this.score += points;
+    this.addScoreText(enemy.x, enemy.y, String(points), enemy.state === 'dive' ? '#fcfc00' : '#ffffff');
+    if (this.isBonusStage) this.bonusHits++;
 
     if (this.audio) this.audio.playExplosion(enemy.type === 'gunship' ? 'medium' : 'small');
     this.createExplosionParticles(enemy.x, enemy.y, enemy.color, enemy.type === 'gunship' ? 24 : 14);
 
-    // Chance to drop power-up
-    const dropChance = enemy.type === 'gunship' ? 0.85 : 0.22;
+    // Chance to drop power-up (none during the bonus stage)
+    const dropChance = this.isBonusStage ? 0 : (enemy.type === 'gunship' ? 0.85 : 0.12);
     if (Math.random() < dropChance) {
       this.spawnPowerup(enemy.x, enemy.y);
     }
+  }
+
+  addScoreText(x, y, text, color = '#ffffff') {
+    this.particles.push({ type: 'text', x, y, vx: 0, vy: -40, text, color, life: 0.8 });
+  }
+
+  destroyBossWing(w) {
+    const b = this.boss;
+    w.alive = false;
+    b.wingsAlive = b.wings.some(wing => wing.alive);
+    const wx = b.x + w.side * 68;
+    this.score += 2000;
+    this.addScoreText(wx, b.y, '2000', '#fcfc00');
+    this.shake = 18;
+    if (this.audio) this.audio.playExplosion('medium');
+    this.createExplosionParticles(wx, b.y, '#ffaa00', 28);
+    this.spawnPowerup(wx, b.y + 20);
   }
 
   destroyBoss() {
@@ -1137,7 +1371,15 @@ class SpaceEngine {
     if (!this.boss && this.waveSpawnQueue.length === 0 && this.enemies.length === 0) {
       this.waveCleared = true;
       this.waveTransitionTimer = 0;
-      this.score += 1000 * this.wave;
+      if (this.isBonusStage) {
+        const perfect = this.bonusHits === this.bonusTotal;
+        const bonus = perfect ? 10000 : this.bonusHits * 100;
+        this.score += bonus;
+        this.bonusResult = { hits: this.bonusHits, total: this.bonusTotal, bonus, perfect };
+        this.waveTransitionTimer = -1.0; // linger a little longer on the results
+      } else {
+        this.score += 1000 * this.wave;
+      }
     }
   }
 

@@ -125,7 +125,7 @@ class TetrisUI {
     if (themeSelect) themeSelect.value = s.theme;
 
     const pieceModeSelect = document.getElementById('piece-mode-select');
-    if (pieceModeSelect) pieceModeSelect.value = s.pieceMode || 'extended';
+    if (pieceModeSelect) pieceModeSelect.value = s.pieceMode || 'classic';
 
     const gameModeSelect = document.getElementById('game-mode-select');
     if (gameModeSelect) gameModeSelect.value = s.gameMode || 'marathon';
@@ -338,7 +338,8 @@ class TetrisUI {
         if (this.pauseOverlay) this.pauseOverlay.classList.remove('active');
         if (this.gameOverOverlay) this.gameOverOverlay.classList.remove('active');
         if (this.resumeOverlay) this.resumeOverlay.classList.remove('active');
-        this.engine.startNewGame(this.settings.startingLevel, this.settings.gameMode);
+        // Restart keeps the current game's mode and shape set
+        this.engine.startNewGame(this.settings.startingLevel, this.engine.gameMode, this.engine.pieceOverride);
         return;
       }
 
@@ -631,7 +632,7 @@ class TetrisUI {
       if (this.pauseOverlay) this.pauseOverlay.classList.remove('active');
       if (this.gameOverOverlay) this.gameOverOverlay.classList.remove('active');
       if (this.resumeOverlay) this.resumeOverlay.classList.remove('active');
-      this.engine.startNewGame();
+      this.engine.startNewGame(this.settings.startingLevel, this.engine.gameMode, this.engine.pieceOverride);
     };
 
     const pauseBtn = document.getElementById('btn-pause-header');
@@ -1415,11 +1416,8 @@ class TetrisUI {
     document.querySelectorAll('.btn-launch-mode').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const mode = btn.getAttribute('data-mode') || 'marathon';
+        // data-shapes (Pentomino Wild) applies to this game only
         const shapes = btn.getAttribute('data-shapes');
-        if (shapes) {
-          this.settings.pieceMode = shapes;
-          this.storage.saveSettings(this.settings);
-        }
         this.settings.gameMode = mode;
         this.storage.saveSettings(this.settings);
 
@@ -1430,7 +1428,7 @@ class TetrisUI {
         if (this.pauseOverlay) this.pauseOverlay.classList.remove('active');
         if (this.gameOverOverlay) this.gameOverOverlay.classList.remove('active');
         if (this.resumeOverlay) this.resumeOverlay.classList.remove('active');
-        this.engine.startNewGame(this.settings.startingLevel, mode);
+        this.engine.startNewGame(this.settings.startingLevel, mode, shapes || null);
 
         // Highlight widget briefly
         this.widget.style.transition = 'transform 0.2s ease, box-shadow 0.2s ease';

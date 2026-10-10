@@ -1,5 +1,5 @@
 /**
- * Nova Strike: 1989 - 8-Bit & 16-Bit Pixel-Art Sprite Engine
+ * Star Vanguard - 8-Bit & 16-Bit Pixel-Art Sprite Engine
  * Pixel matrices, color palettes, and cached sprite drawing utilities.
  */
 

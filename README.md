@@ -1,6 +1,6 @@
-# 🕹️ Lukey-Arcade // Classic Tetris & Nova Strike: 1989
+# 🕹️ Lukey-Arcade // Classic Tetris & Star Vanguard
 
-A retro 8-bit and 16-bit arcade suite featuring **Classic Tetris-89** with an Arcade Mission Control Hub & floating IDE companion widget, alongside **Nova Strike: 1989**, a chunky pixel-art spaceship combat simulator with a 1989 hardware BIOS bootup, interactive cabinet menu, playable ship selection hangar, and multi-phase boss battles.
+A retro 8-bit and 16-bit arcade suite featuring **Classic Tetris-89** with an Arcade Mission Control Hub & floating IDE companion widget, alongside **Star Vanguard**, a chunky pixel-art spaceship combat simulator with a 1989 hardware BIOS bootup, interactive cabinet menu, playable ship selection hangar, and multi-phase boss battles.
 
 Both games are organized into **completely independent, dedicated pages** with zero clutter.
 
@@ -12,7 +12,7 @@ Both games are organized into **completely independent, dedicated pages** with z
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        INDEPENDENT ARCADE SUITE                        │
 ├────────────────────────────────┬───────────────────────────────────────┤
-│ 🕹️ TETRIS-89 (index.html)      │ 🚀 NOVA STRIKE: 1989 (space.html)     │
+│ 🕹️ TETRIS-89 (index.html)      │ 🚀 STAR VANGUARD (space.html)     │
 ├────────────────────────────────┼───────────────────────────────────────┤
 │ • Full Tetris Mission Control  │ • Full Retro Arcade Cabinet           │
 │ • Sprint 40, Blitz 2M, Marathon│ • 1989 BIOS Boot Memory Check         │
@@ -21,7 +21,7 @@ Both games are organized into **completely independent, dedicated pages** with z
 │ • Polyomino Shape Laboratory   │ • Tactical Sector Briefing & Radar    │
 │ • Movable Floating Mini Widget │ • 8/16-Bit Pixel Matrix Combat        │
 │ • Floating Popup (popup.html)  │ • Floating Popup (space_popup.html)   │
-│ • Direct Link: [🚀 NOVA STRIKE]│ • Direct Link: [🕹️ ← TETRIS-89]       │
+│ • Direct Link: [🚀 STAR VANGUARD]│ • Direct Link: [🕹️ ← TETRIS-89]       │
 └────────────────────────────────┴───────────────────────────────────────┘
 ```
 
@@ -65,7 +65,7 @@ Both games are organized into **completely independent, dedicated pages** with z
 
 ---
 
-### 🚀 2. Nova Strike: 1989 (`space.html`)
+### 🚀 2. Star Vanguard (`space.html`)
 
 #### 👾 Authentic 8-Bit & 16-Bit Pixel-Matrix Engine
 - Chunky pixel sprites rendered with crisp nearest-neighbor rasterization (`imageSmoothingEnabled = false`):
@@ -115,7 +115,7 @@ Choose between 3 distinct starfighter loadouts:
 | **Pause / Resume** | `P` | `Escape` | Customizable in Options |
 | **Mute / Unmute** | `M` | Toolbar `🔊 MUTE` | Customizable in Options |
 
-### Nova Strike: 1989
+### Star Vanguard
 | Action | Keyboard | Mouse / Touch Pointer |
 | :--- | :--- | :--- |
 | **Menu Navigate** | `W` `S` or `↑` `↓` | Click / Tap menu items |
@@ -142,7 +142,7 @@ A cross-platform Flutter mobile application is bundled under `flutter_app/`:
 ## 🚀 Quick Start & Running Locally
 
 ### Option 1: Direct Browser
-Open `index.html` (Tetris) or `space.html` (Nova Strike) in any modern web browser.
+Open `index.html` (Tetris) or `space.html` (Star Vanguard) in any modern web browser.
 
 ### Option 2: Windows 1-Click Launcher
 Double-click `run.bat`.
@@ -160,9 +160,9 @@ node server.js 4000
 
 Open in your browser:
 - **🕹️ Classic Tetris-89**: [http://localhost:4000/index.html](http://localhost:4000/index.html) *(or [http://localhost:4000/](http://localhost:4000/))*
-- **🚀 Nova Strike: 1989**: [http://localhost:4000/space.html](http://localhost:4000/space.html)
+- **🚀 Star Vanguard**: [http://localhost:4000/space.html](http://localhost:4000/space.html)
 - **🪟 Tetris Mini Floating Window**: [http://localhost:4000/popup.html](http://localhost:4000/popup.html)
-- **🪟 Nova Strike Mini Floating Window**: [http://localhost:4000/space_popup.html](http://localhost:4000/space_popup.html)
+- **🪟 Star Vanguard Mini Floating Window**: [http://localhost:4000/space_popup.html](http://localhost:4000/space_popup.html)
 
 ---
 
