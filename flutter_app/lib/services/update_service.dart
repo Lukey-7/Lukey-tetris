@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 class UpdateService {
-  static const String currentVersion = 'v1.1.0';
+  static const String currentVersion = 'v1.1.1';
   static const String repoOwner = 'Lukey-7';
   static const String repoName = 'Lukey-tetris';
 
