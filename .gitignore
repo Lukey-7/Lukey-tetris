@@ -2,3 +2,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+
+# Research notes and reports (local only)
+research_notes/
+reports/

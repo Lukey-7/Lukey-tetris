@@ -625,6 +625,17 @@ class SpaceAudio {
     }
   }
 
+  // Wobbling tractor-beam drone (called in short pulses while the beam is on)
+  playBeamHum() {
+    this.sweep(0.125, 220, 330, 0.12, 0.09);
+    this.sweep(0.5, 110, 165, 0.12, 0.06);
+  }
+
+  // Descending wail as the fighter is dragged up the beam
+  playCaptured() {
+    for (let i = 0; i < 6; i++) this.sweep(0.25, 880 - i * 90, 840 - i * 90, 0.16, 0.14, i * 0.2);
+  }
+
   playBootBeep() {
     this.sweep(0.5, 1046.5, 1046, 0.06, 0.14);
   }

@@ -125,15 +125,41 @@ class SpaceUI {
       const k = e.key.toLowerCase();
       const state = this.engine.gameState;
 
+      this.titleIdle = 0;
+
       // Any key skips the boot sequence
       if (state === 'BOOT') {
         this.engine.skipBoot();
         return;
       }
 
-      // Hall of Aces screen: any key returns to the menu
+      // Initials entry
+      if (state === 'NAME_ENTRY') {
+        this.handleNameEntryKey(e);
+        return;
+      }
+
+      // Game over: results screen, then initials entry (if the score ranks) or a rematch
+      if (state === 'GAMEOVER') {
+        if (['enter', ' ', 'z', 'escape', 'r'].includes(k) && this.engine.gameOverTimer > 1.2) {
+          e.preventDefault();
+          this.afterGameOver(k === 'escape');
+        }
+        return;
+      }
+
+      // Hall of Aces screen: left/right switch mode, any other key returns to the menu
       if (state === 'TITLE' && this.showRecords) {
-        this.showRecords = false;
+        if ((k === 'arrowleft' || k === 'a' || k === 'arrowright' || k === 'd') && !this.attractRecords) {
+          const step = (k === 'arrowleft' || k === 'a') ? -1 : 1;
+          const i = this.modeList.indexOf(this.recordsMode || this.engine.gameMode);
+          this.recordsMode = this.modeList[(i + step + this.modeList.length) % this.modeList.length];
+          this.highlightRank = 0;
+        } else {
+          this.showRecords = false;
+          this.attractRecords = false;
+          this.highlightRank = 0;
+        }
         if (this.audio) this.audio.playMenuMove();
         return;
       }
@@ -195,9 +221,6 @@ class SpaceUI {
       if (k === 'p' || k === 'escape') {
         this.togglePause();
       }
-      if (k === 'r' && this.engine.isGameOver) {
-        this.engine.startMission(this.engine.gameMode);
-      }
     });
 
     window.addEventListener('keyup', (e) => {
@@ -222,6 +245,7 @@ class SpaceUI {
 
     if (this.canvas) {
       this.canvas.addEventListener('mousedown', (e) => {
+        this.titleIdle = 0;
         const pos = getCanvasPos(e.clientX, e.clientY);
         const state = this.engine.gameState;
 
@@ -269,7 +293,11 @@ class SpaceUI {
         }
 
         if (state === 'GAMEOVER') {
-          this.engine.startMission(this.engine.gameMode);
+          if (this.engine.gameOverTimer > 1.2) this.afterGameOver(false);
+          return;
+        }
+        if (state === 'NAME_ENTRY') {
+          this.handleNameEntryPointer(pos);
           return;
         }
 
@@ -300,6 +328,7 @@ class SpaceUI {
       // Mobile Touch Handling
       this.canvas.addEventListener('touchstart', (e) => {
         e.preventDefault();
+        this.titleIdle = 0;
         const touch = e.touches[0];
         const pos = getCanvasPos(touch.clientX, touch.clientY);
         const state = this.engine.gameState;
@@ -309,6 +338,11 @@ class SpaceUI {
           return;
         }
         if (state === 'TITLE') {
+          if (this.showRecords) {
+            this.showRecords = false;
+            this.attractRecords = false;
+            return;
+          }
           this.engine.startMission('campaign');
           return;
         }
@@ -322,7 +356,11 @@ class SpaceUI {
           return;
         }
         if (state === 'GAMEOVER') {
-          this.engine.startMission(this.engine.gameMode);
+          if (this.engine.gameOverTimer > 1.2) this.afterGameOver(false);
+          return;
+        }
+        if (state === 'NAME_ENTRY') {
+          this.handleNameEntryPointer(pos);
           return;
         }
 
@@ -348,6 +386,106 @@ class SpaceUI {
     }
   }
 
+  // --- Game over -> initials entry -> Hall of Aces ---
+
+  /** Continue from the results screen: enter initials if the score ranks, else rematch / menu. */
+  afterGameOver(toMenu) {
+    const rank = this.engine.scoreRank(this.engine.score);
+    if (rank) {
+      this.nameEntry = { chars: '', cursor: 0, timer: 30, rank, mode: this.engine.gameMode };
+      this.engine.isGameOver = false;
+      this.engine.gameState = 'NAME_ENTRY';
+      if (this.audio) this.audio.playMenuSelect();
+    } else if (toMenu) {
+      this.engine.isGameOver = false;
+      this.engine.goToTitle();
+    } else {
+      this.engine.startMission(this.engine.gameMode);
+    }
+  }
+
+  // Initials grid: A-Z, three symbols, delete and end
+  get NAME_GRID() {
+    return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ.-!'.split('').concat(['DEL', 'END']);
+  }
+
+  handleNameEntryKey(e) {
+    const n = this.nameEntry;
+    const k = e.key;
+    const grid = this.NAME_GRID;
+    if (/^[a-z0-9.\-!]$/i.test(k)) {
+      this.nameEntryInput(k.toUpperCase());
+    } else if (k === 'Backspace') {
+      e.preventDefault();
+      this.nameEntryInput('DEL');
+    } else if (k === 'ArrowLeft') {
+      n.cursor = (n.cursor - 1 + grid.length) % grid.length;
+    } else if (k === 'ArrowRight') {
+      n.cursor = (n.cursor + 1) % grid.length;
+    } else if (k === 'ArrowUp') {
+      n.cursor = (n.cursor - 8 + grid.length) % grid.length;
+    } else if (k === 'ArrowDown') {
+      n.cursor = (n.cursor + 8) % grid.length;
+    } else if (k === 'Enter' || k === ' ') {
+      e.preventDefault();
+      if (n.chars.length === 3 && grid[n.cursor] !== 'DEL') this.finishNameEntry();
+      else this.nameEntryInput(grid[n.cursor]);
+    } else if (k === 'Escape') {
+      this.finishNameEntry();
+    }
+    if (this.audio && k.startsWith('Arrow')) this.audio.playMenuMove();
+  }
+
+  nameEntryInput(ch) {
+    const n = this.nameEntry;
+    if (ch === 'END') return this.finishNameEntry();
+    if (ch === 'DEL') {
+      n.chars = n.chars.slice(0, -1);
+    } else if (n.chars.length < 3) {
+      n.chars += ch;
+      if (this.audio) this.audio.playMenuMove();
+    }
+    // Jump to END once all three letters are in
+    if (n.chars.length === 3) n.cursor = this.NAME_GRID.indexOf('END');
+  }
+
+  /** Grid layout in low-res pixels; shared by the renderer and pointer hit-testing. */
+  nameGridCell(i) {
+    const col = i % 8, row = Math.floor(i / 8);
+    const ch = this.NAME_GRID[i];
+    // DEL spans two columns; END takes the last column, widened toward the edge
+    const w = ch === 'DEL' ? 46 : (ch === 'END' ? 40 : 22);
+    const x = 24 + (ch === 'END' ? 7 : col) * 24;
+    return { x, y: 150 + row * 20, w, h: 16 };
+  }
+
+  handleNameEntryPointer(pos) {
+    const lx = pos.x / 2, ly = pos.y / 2;
+    const grid = this.NAME_GRID;
+    for (let i = 0; i < grid.length; i++) {
+      const c = this.nameGridCell(i);
+      if (lx >= c.x && lx < c.x + c.w && ly >= c.y && ly < c.y + c.h) {
+        this.nameEntry.cursor = i;
+        this.nameEntryInput(grid[i]);
+        return;
+      }
+    }
+  }
+
+  finishNameEntry() {
+    const n = this.nameEntry;
+    if (!n) return;
+    const rank = this.engine.addScoreEntry(n.chars || '...', n.mode);
+    this.engine.highScore = Math.max(this.engine.highScore, this.engine.score);
+    this.nameEntry = null;
+    this.engine.goToTitle();
+    this.showRecords = true;
+    this.attractRecords = false;
+    this.recordsMode = n.mode;
+    this.highlightRank = rank;
+    if (this.audio) this.audio.playMenuSelect();
+  }
+
   selectMenuItem(index) {
     if (this.audio) this.audio.playMenuSelect();
     if (index === 0) {
@@ -365,6 +503,9 @@ class SpaceUI {
     } else if (index === 3) {
       // 4. Hall of Aces
       this.showRecords = true;
+      this.attractRecords = false;
+      this.recordsMode = this.engine.gameMode;
+      this.highlightRank = 0;
     }
   }
 
@@ -407,6 +548,29 @@ class SpaceUI {
 
     this.engine.update(dt);
     this.updateMusic();
+
+    const state = this.engine.gameState;
+    // Arcade attract loop: an idle title screen cycles to the score table and back
+    if (state === 'TITLE') {
+      this.titleIdle = (this.titleIdle || 0) + dt;
+      if (!this.showRecords && this.titleIdle > 12) {
+        this.showRecords = true;
+        this.attractRecords = true;
+        this.recordsMode = this.engine.gameMode;
+        this.highlightRank = 0;
+        this.titleIdle = 0;
+      } else if (this.attractRecords && this.titleIdle > 7) {
+        this.showRecords = false;
+        this.attractRecords = false;
+        this.titleIdle = 0;
+      }
+    }
+
+    // Initials entry times out like an arcade cabinet
+    if (state === 'NAME_ENTRY' && this.nameEntry) {
+      this.nameEntry.timer -= dt;
+      if (this.nameEntry.timer <= 0) this.finishNameEntry();
+    }
   }
 
   // Music director: picks the chiptune track that matches the current screen
@@ -422,11 +586,11 @@ class SpaceUI {
 
     const state = e.gameState;
     // Leaving the game for the menus cuts any jingle that is still playing
-    if (state !== this.prevState && (state === 'TITLE' || state === 'HANGAR') && a.jingleActive) a.stopBGM();
+    if (state !== this.prevState && ['TITLE', 'HANGAR', 'NAME_ENTRY'].includes(state) && a.jingleActive) a.stopBGM();
     this.prevState = state;
 
     let track = null;
-    if (state === 'TITLE' || state === 'HANGAR') {
+    if (state === 'TITLE' || state === 'HANGAR' || state === 'NAME_ENTRY') {
       track = 'title';
     } else if (state === 'PLAYING' && !e.isGameOver && !e.isPaused && !e.waveCleared) {
       track = e.boss ? 'boss' : 'stage';
@@ -465,6 +629,8 @@ class SpaceUI {
     const state = this.engine.gameState;
     if (state === 'BOOT') {
       this.renderBootScreen(b);
+    } else if (state === 'NAME_ENTRY') {
+      this.renderNameEntry(b);
     } else if (state === 'TITLE') {
       if (this.showRecords) this.renderRecordsScreen(b);
       else this.renderTitleScreen(b);
@@ -581,17 +747,93 @@ class SpaceUI {
     K.text(b, 'CREDIT 01', 234, 308, C.white, { align: 'right' });
   }
 
+  ordinal(n) {
+    const teen = n % 100 >= 11 && n % 100 <= 13;
+    return n + (teen ? 'TH' : ({ 1: 'ST', 2: 'ND', 3: 'RD' }[n % 10] || 'TH'));
+  }
+
   renderRecordsScreen(b) {
     const K = PixelKit, C = K.C;
-    K.text(b, 'HALL OF ACES', 120, 40, C.gold, { scale: 2, align: 'center', shadow: C.red });
-    K.panel(b, 30, 80, 180, 110, C.cyan);
-    K.text(b, 'RANK  SCORE   PILOT', 120, 94, C.cyan, { align: 'center' });
-    K.text(b, '1ST   ' + String(this.engine.highScore).padStart(6, '0') + '  ACE', 120, 112, C.white, { align: 'center' });
-    for (let i = 2; i <= 5; i++) {
-      K.text(b, ['', '', '2ND', '3RD', '4TH', '5TH'][i] + '   ------  ---', 120, 112 + (i - 1) * 14, C.darkGrey, { align: 'center' });
+    const mode = this.recordsMode || this.engine.gameMode;
+    const table = this.engine.getScoreTable(mode);
+    K.text(b, 'HALL OF ACES', 120, 18, C.gold, { scale: 2, align: 'center', shadow: C.red });
+    const label = mode.replace('_', ' ').toUpperCase();
+    K.text(b, this.attractRecords ? label : `< ${label} >`, 120, 42, C.cyan, { align: 'center' });
+
+    K.panel(b, 14, 56, 212, 170, C.cyan);
+    K.text(b, 'RANK', 22, 64, C.cyan);
+    K.text(b, 'SCORE', 108, 64, C.cyan, { align: 'right' });
+    K.text(b, 'NAME', 122, 64, C.cyan);
+    K.text(b, 'STG', 186, 64, C.cyan);
+    K.text(b, 'SHIP', 212, 64, C.cyan, { align: 'right' });
+    const rankColors = [C.gold, C.white, C.orange];
+    for (let i = 0; i < 10; i++) {
+      const y = 78 + i * 14;
+      const e = table[i];
+      const isNew = this.highlightRank === i + 1;
+      if (isNew && !this.blink(4)) continue;
+      const col = isNew ? C.green : (e ? (rankColors[i] || C.grey) : C.darkGrey);
+      K.text(b, this.ordinal(i + 1), 22, y, col);
+      if (e) {
+        K.text(b, String(e.score).padStart(6, '0'), 108, y, col, { align: 'right' });
+        K.text(b, e.initials, 122, y, col);
+        K.text(b, String(e.stage).padStart(2, '0'), 186, y, col);
+        K.text(b, (e.ship || 'viper')[0], 212, y, col, { align: 'right' });
+      } else {
+        K.text(b, '------', 108, y, col, { align: 'right' });
+        K.text(b, '---', 122, y, col);
+      }
     }
-    K.text(b, 'SHIP: ' + this.engine.selectedShip.toUpperCase(), 120, 210, C.white, { align: 'center' });
-    if (this.blink(2)) K.text(b, 'PRESS ANY KEY', 120, 250, C.gold, { align: 'center' });
+
+    if (this.highlightRank) {
+      K.text(b, `YOU PLACED ${this.ordinal(this.highlightRank)}!`, 120, 236, C.green, { align: 'center' });
+    }
+    if (this.attractRecords) {
+      if (this.blink(2)) K.text(b, 'PUSH START BUTTON', 120, 260, C.gold, { align: 'center' });
+    } else {
+      K.text(b, '< > CHANGE MODE', 120, 254, C.grey, { align: 'center' });
+      if (this.blink(2)) K.text(b, 'PRESS ANY KEY', 120, 270, C.gold, { align: 'center' });
+    }
+  }
+
+  // --- INITIALS ENTRY ---
+  renderNameEntry(b) {
+    const K = PixelKit, C = K.C;
+    const n = this.nameEntry;
+    if (!n) return;
+    K.text(b, 'NEW RECORD!', 120, 16, C.gold, { scale: 2, align: 'center', shadow: C.red });
+    K.text(b, `SCORE ${String(this.engine.score).padStart(6, '0')}`, 120, 40, C.white, { align: 'center' });
+    K.text(b, `RANK ${this.ordinal(n.rank)}  ${n.mode.replace('_', ' ').toUpperCase()}`, 120, 52, C.cyan, { align: 'center' });
+    K.text(b, 'ENTER YOUR INITIALS', 120, 72, C.pink, { align: 'center' });
+
+    // Three big letter slots
+    for (let i = 0; i < 3; i++) {
+      const x = 120 + (i - 1) * 28;
+      const ch = n.chars[i];
+      if (ch) K.text(b, ch, x, 92, C.white, { scale: 3, align: 'center', shadow: C.navy });
+      const active = i === n.chars.length;
+      b.fillStyle = active && this.blink(4) ? C.gold : C.darkGrey;
+      b.fillRect(x - 9, 116, 18, 2);
+    }
+
+    // Character grid (type on a keyboard, or pick with arrows / taps)
+    const grid = this.NAME_GRID;
+    grid.forEach((ch, i) => {
+      const c = this.nameGridCell(i);
+      const w = c.w;
+      const selected = n.cursor === i;
+      if (selected) {
+        b.fillStyle = C.navy;
+        b.fillRect(c.x, c.y, w, c.h);
+        K.box(b, c.x, c.y, w, c.h, this.blink(4) ? C.gold : C.cyan);
+      }
+      const col = ch === 'END' ? C.green : (ch === 'DEL' ? C.red : C.white);
+      K.text(b, ch, c.x + w / 2, c.y + 5, selected ? C.gold : col, { align: 'center' });
+    });
+
+    K.text(b, `TIME ${String(Math.max(0, Math.ceil(n.timer))).padStart(2, '0')}`, 232, 4, n.timer < 10 ? C.red : C.grey, { align: 'right' });
+    K.text(b, 'TYPE, OR ARROWS + ENTER', 120, 250, C.grey, { align: 'center' });
+    K.text(b, 'BACKSPACE = DELETE', 120, 262, C.grey, { align: 'center' });
   }
 
   // --- 3. SHIP SELECTION HANGAR ---
@@ -692,6 +934,7 @@ class SpaceUI {
 
     this.renderPowerups(b);
     this.renderAsteroids(b);
+    this.renderBeams(b);
     this.renderEnemies(b);
     if (this.engine.boss) this.renderBoss(b, this.engine.boss);
     this.engine.playerBullets.forEach(bl => this.renderPlayerBullet(b, bl));
@@ -723,17 +966,30 @@ class SpaceUI {
 
   renderPlayer(b, p) {
     const K = PixelKit, C = K.C;
+    const cap = this.engine.capture;
+    if (cap) {
+      // Being dragged up the tractor beam
+      if (cap.phase === 'pull') this.renderSpinningShip(b, cap.x, cap.y);
+      return;
+    }
+    // Rescued fighter spinning down to dock
+    if (this.engine.rescue) this.renderSpinningShip(b, this.engine.rescue.x, this.engine.rescue.y);
+
     // Classic invulnerability flicker: skip drawing on alternate frames
     if (p.invulnerableTimer > 0 && (this.frame >> 2) % 2 === 0) return;
 
     const x = this.lx(p.x), y = this.lx(p.y);
     const id = this.engine.selectedShip;
-    K.blit(b, K.sprite('ship-' + id, this.shipSprite(id), SpaceSprites.Palettes[id]), x, y, 1);
-    this.renderThruster(b, x, y + 8, 1);
+    const sprite = K.sprite('ship-' + id, this.shipSprite(id), SpaceSprites.Palettes[id]);
+    const offsets = p.dual ? [-8, 8] : [0];
+    offsets.forEach(dx => {
+      K.blit(b, sprite, x + dx, y, 1);
+      this.renderThruster(b, x + dx, y + 8, 1);
+    });
 
     if (p.shield > 0) {
       const low = p.shield / p.maxShield < 0.3;
-      if (!low || this.blink(6)) K.circle(b, x, y, this.lx(p.radius + 8), C.aqua, true);
+      if (!low || this.blink(6)) K.circle(b, x, y, this.lx(p.radius + 8) + (p.dual ? 8 : 0), C.aqua, true);
     }
   }
 
@@ -778,8 +1034,47 @@ class SpaceUI {
         K.blit(b, K.sprite('striker', S.Striker, P.striker, { flash }), x, y, 1);
       } else if (e.type === 'gunship') {
         K.blit(b, K.sprite('gunship', S.Gunship, P.gunship, { flash }), x, y, 1);
+      } else if (e.type === 'commander') {
+        // Turns blue after its first hit, like the Boss Galaga
+        const damaged = e.hp < e.maxHp;
+        K.blit(b, K.sprite(damaged ? 'cmd-hit' : 'cmd', S.Commander, damaged ? P.commanderHit : P.commander, { flash }), x, y, 1);
+        if (e.captive) {
+          const id = this.engine.selectedShip;
+          K.blit(b, K.sprite('captive-' + id, this.shipSprite(id), P.captive), x, y - 14, 1);
+        }
+      } else if (e.type === 'traitor') {
+        const id = this.engine.selectedShip;
+        K.blit(b, K.sprite('traitor-' + id, this.shipSprite(id), P.captive, { flash, rot: 2 }), x, y, 1);
       }
     });
+  }
+
+  /** Tractor beams: striped cone that unrolls downward and shimmers. */
+  renderBeams(b) {
+    const C = PixelKit.C;
+    const colors = [C.cyan, C.blue, C.white, C.aqua];
+    this.engine.enemies.forEach(e => {
+      if (e.state !== 'beaming') return;
+      const top = this.lx(e.y) + 7;
+      const grow = Math.min(1, e.beamTimer / 0.6);
+      const bottom = Math.round(top + (this.LH - 20 - top) * grow);
+      const cx = this.lx(e.x);
+      for (let y = top; y < bottom; y++) {
+        if ((y + (this.frame >> 1)) % 4 === 3) continue; // scan gaps make it shimmer
+        const hw = Math.max(1, Math.round(this.engine.beamHalfWidth(e, y * 2) / 2));
+        const band = Math.floor((y - top - this.frame * 0.75) / 3);
+        b.fillStyle = colors[((band % 4) + 4) % 4];
+        b.fillRect(cx - hw, y, hw * 2, 1);
+      }
+    });
+  }
+
+  /** A fighter spinning in quarter turns (capture and rescue animations). */
+  renderSpinningShip(b, x, y, palette) {
+    const K = PixelKit;
+    const id = this.engine.selectedShip;
+    const rot = (this.frame >> 3) % 4;
+    K.blit(b, K.sprite('ship-' + id + (palette ? '-cap' : ''), this.shipSprite(id), palette || SpaceSprites.Palettes[id], { rot }), this.lx(x), this.lx(y), 1);
   }
 
   renderBoss(b, boss) {
@@ -938,18 +1233,39 @@ class SpaceUI {
 
   renderGameOverOverlay(b) {
     const K = PixelKit, C = K.C;
+    const e = this.engine, s = e.stats;
     this.renderOverlayBackdrop(b);
-    K.panel(b, 30, 100, 180, 110, C.red);
-    K.text(b, 'GAME OVER', 120, 112, C.red, { scale: 2, align: 'center', shadow: C.navy });
-    K.text(b, 'SCORE', 50, 140, C.white);
-    K.text(b, String(this.engine.score).padStart(6, '0'), 190, 140, C.gold, { align: 'right' });
-    K.text(b, 'STAGE', 50, 152, C.white);
-    K.text(b, String(this.engine.wave).padStart(2, '0'), 190, 152, C.gold, { align: 'right' });
-    if (this.engine.score > 0 && this.engine.score >= this.engine.highScore && this.blink(4)) {
-      K.text(b, 'NEW HIGH SCORE!', 120, 168, C.green, { align: 'center' });
+    K.panel(b, 24, 54, 192, 206, C.red);
+    K.text(b, 'GAME OVER', 120, 64, C.red, { scale: 2, align: 'center', shadow: C.navy });
+
+    // Galaga-style results card
+    const ratio = s.shotsFired ? (s.hits / s.shotsFired) * 100 : 0;
+    const rows = [
+      ['SCORE', String(e.score).padStart(6, '0'), C.gold],
+      ['STAGE', String(e.wave).padStart(2, '0'), C.white],
+      ['SHOTS FIRED', String(s.shotsFired), C.white],
+      ['NUMBER OF HITS', String(s.hits), C.white],
+      ['HIT-MISS RATIO', ratio.toFixed(1) + '%', ratio >= 75 ? C.green : C.white],
+      ['ENEMIES DOWN', String(s.kills), C.white],
+      ['MAX COMBO', String(s.maxCombo), C.white],
+      ['RESCUES', String(s.rescues), s.rescues ? C.green : C.grey]
+    ];
+    rows.forEach(([label, value, col], i) => {
+      const y = 90 + i * 12;
+      K.text(b, label, 36, y, C.cyan);
+      K.text(b, value, 204, y, col, { align: 'right' });
+    });
+
+    const rank = e.scoreRank(e.score);
+    if (rank === 1 && this.blink(4)) K.text(b, 'NEW HIGH SCORE!', 120, 194, C.green, { align: 'center' });
+    else if (rank > 1) K.text(b, `RANK ${this.ordinal(rank)} - ENTER NAME`, 120, 194, C.green, { align: 'center' });
+    const best = e.getScoreTable()[0];
+    if (!rank && best) K.text(b, `${best.score - e.score} PTS FROM 1ST`, 120, 194, C.orange, { align: 'center' });
+
+    if (e.gameOverTimer > 1.2) {
+      if (this.blink(2)) K.text(b, rank ? 'PUSH START' : 'PUSH START TO RETRY', 120, 216, C.cyan, { align: 'center' });
+      K.text(b, rank ? 'TO SAVE YOUR SCORE' : 'ESC = MENU', 120, 230, C.grey, { align: 'center' });
     }
-    if (this.blink(2)) K.text(b, 'PUSH START', 120, 184, C.cyan, { align: 'center' });
-    K.text(b, 'ESC = MENU', 120, 196, C.grey, { align: 'center' });
   }
 
   renderWaveClearedOverlay(b) {

@@ -78,8 +78,14 @@ class SpaceEngine {
       fireTimer: 0,
       fireRate: 0.12, // seconds per shot
       missileTimer: 0,
-      invulnerableTimer: 2.0 // initial spawn shield
+      invulnerableTimer: 2.0, // initial spawn shield
+      dual: false // rescued second fighter docked alongside
     };
+
+    // Tractor-beam capture sequence in progress (null when none)
+    this.capture = null;
+    this.gameOverTimer = 0;
+    this.resetStats();
 
     // Input state
     this.input = {
@@ -171,6 +177,9 @@ class SpaceEngine {
     try {
       const saved = localStorage.getItem('nova_strike_highscore');
       this.highScore = saved ? parseInt(saved, 10) : 0;
+      // Include the best entry from any mode's score table
+      const tables = this.loadScoreTables();
+      Object.values(tables).forEach(t => t.forEach(e => { this.highScore = Math.max(this.highScore, e.score); }));
     } catch (e) {
       this.highScore = 0;
     }
@@ -183,6 +192,53 @@ class SpaceEngine {
         localStorage.setItem('nova_strike_highscore', this.highScore.toString());
       }
     } catch (e) {}
+  }
+
+  resetStats() {
+    // Shown on the results screen at game over
+    this.stats = { shotsFired: 0, hits: 0, kills: 0, maxCombo: 0, rescues: 0, bosses: 0 };
+  }
+
+  // --- High-Score Table (top 10 per mode, stored locally) ---
+
+  loadScoreTables() {
+    try {
+      this.scoreTables = JSON.parse(localStorage.getItem('star_vanguard_scores_v1')) || {};
+    } catch (e) {
+      this.scoreTables = {};
+    }
+    return this.scoreTables;
+  }
+
+  getScoreTable(mode = this.gameMode) {
+    if (!this.scoreTables) this.loadScoreTables();
+    return this.scoreTables[mode] || [];
+  }
+
+  /** Rank (1-10) this score would take in the mode's table, or 0 if it doesn't make it. */
+  scoreRank(score, mode = this.gameMode) {
+    if (score <= 0) return 0;
+    const table = this.getScoreTable(mode);
+    const rank = table.filter(e => e.score >= score).length + 1;
+    return rank <= 10 ? rank : 0;
+  }
+
+  addScoreEntry(initials, mode = this.gameMode) {
+    const table = this.getScoreTable(mode).slice();
+    const entry = {
+      initials: (initials || '...').toUpperCase().padEnd(3, '.').slice(0, 3),
+      score: this.score,
+      stage: this.wave,
+      ship: this.selectedShip,
+      date: Date.now()
+    };
+    table.push(entry);
+    table.sort((a, b) => b.score - a.score || a.date - b.date);
+    this.scoreTables[mode] = table.slice(0, 10);
+    try {
+      localStorage.setItem('star_vanguard_scores_v1', JSON.stringify(this.scoreTables));
+    } catch (e) {}
+    return this.scoreTables[mode].indexOf(entry) + 1;
   }
 
   resetGame() {
@@ -205,6 +261,10 @@ class SpaceEngine {
     this.player.weaponTier = 1;
     this.player.bombs = 2;
     this.player.invulnerableTimer = 2.0;
+    this.player.dual = false;
+    this.capture = null;
+    this.gameOverTimer = 0;
+    this.resetStats();
 
     this.playerBullets = [];
     this.enemyBullets = [];
@@ -308,7 +368,18 @@ class SpaceEngine {
     const rank = { gunship: 0, striker: 1, scout: 2 };
     types.sort((a, b) => rank[a] - rank[b]);
 
-    this.totalWaveEnemies = count;
+    // Commanders (tractor-beam carriers) get their own row above the formation
+    const commanders = 2 + Math.min(2, stage.lap);
+    for (let c = 0; c < commanders; c++) {
+      this.waveSpawnQueue.push({
+        type: 'commander',
+        delay: 0.6 + c * 0.22,
+        slot: { x: (c - (commanders - 1) / 2) * 46, y: -38 },
+        entry: c % 2 === 0 ? 'topL' : 'topR'
+      });
+    }
+
+    this.totalWaveEnemies = count + commanders;
     this.enemiesDefeated = 0;
 
     const cols = 8;
@@ -380,24 +451,176 @@ class SpaceEngine {
   spawnEnemy(spec) {
     const type = spec.type;
     const pts = this.entryPath(spec.entry);
-    const enemy = {
+    const enemy = this.makeEnemy(type, pts[0].x, pts[0].y, spec.slot);
+    enemy.state = spec.flyby ? 'flyby' : 'enter';
+    enemy.path = { pts, t: 0, dur: spec.flyby ? 3.4 : 2.4 };
+    this.enemies.push(enemy);
+  }
+
+  makeEnemy(type, x, y, slot) {
+    const STATS = {
+      scout:     { radius: 14, hp: 2,  fireRate: 8.0, color: '#00ffff', score: 60 },
+      striker:   { radius: 18, hp: 5,  fireRate: 5.5, color: '#ffaa00', score: 120 },
+      gunship:   { radius: 24, hp: 12, fireRate: 3.6, color: '#ff0055', score: 250 },
+      // Two-hit tractor-beam carrier (Galaga's Boss Galaga)
+      commander: { radius: 16, hp: 2,  fireRate: 6.5, color: '#33ff99', score: 150 },
+      // The player's own captured fighter, turned hostile
+      traitor:   { radius: 14, hp: 1,  fireRate: 5.0, color: '#ff3344', score: 1000 }
+    };
+    const s = STATS[type] || STATS.scout;
+    return {
       type,
-      x: pts[0].x,
-      y: pts[0].y,
-      radius: type === 'gunship' ? 24 : (type === 'striker' ? 18 : 14),
-      hp: type === 'gunship' ? 12 : (type === 'striker' ? 5 : 2),
-      maxHp: type === 'gunship' ? 12 : (type === 'striker' ? 5 : 2),
+      x, y,
+      radius: s.radius,
+      hp: s.hp,
+      maxHp: s.hp,
       fireTimer: 2 + Math.random() * 3,
-      fireRate: type === 'gunship' ? 3.6 : (type === 'striker' ? 5.5 : 8.0),
-      color: type === 'gunship' ? '#ff0055' : (type === 'striker' ? '#ffaa00' : '#00ffff'),
-      scoreValue: type === 'gunship' ? 250 : (type === 'striker' ? 120 : 60),
-      slot: spec.slot || { x: 0, y: 0 },
-      state: spec.flyby ? 'flyby' : 'enter',
-      path: { pts, t: 0, dur: spec.flyby ? 3.4 : 2.4 },
+      fireRate: s.fireRate,
+      color: s.color,
+      scoreValue: s.score,
+      slot: slot || { x: 0, y: 0 },
+      state: 'formation',
+      path: null,
       hitFlash: 0,
+      captive: false,
       t: Math.random() * Math.PI * 2
     };
-    this.enemies.push(enemy);
+  }
+
+  // --- Tractor beam (Galaga capture) ---
+
+  canBeamPlayer() {
+    const p = this.player;
+    return !this.capture && !this.rescue && !p.dual && !this.isGameOver && p.invulnerableTimer <= 0 &&
+      !this.enemies.some(e => e.captive || e.state === 'beamDive' || e.state === 'beaming');
+  }
+
+  startBeamDive(e) {
+    const hx = Math.max(70, Math.min(this.width - 70, this.player.x));
+    e.state = 'beamDive';
+    e.path = {
+      pts: [{ x: e.x, y: e.y }, { x: e.x, y: e.y - 60 }, { x: hx, y: 180 }, { x: hx, y: 330 }],
+      t: 0,
+      dur: 1.7
+    };
+    e.beamTimer = 0;
+  }
+
+  /** Half-width of the beam cone at a given y (it widens toward the bottom). */
+  beamHalfWidth(e, y) {
+    const grow = Math.min(1, e.beamTimer / 0.6);
+    return grow * (14 + Math.max(0, y - e.y) * 0.12);
+  }
+
+  updateBeam(e, dt) {
+    e.beamTimer += dt;
+    const p = this.player;
+    const extended = e.beamTimer > 0.6;
+    if (this.audio && Math.floor(e.beamTimer * 8) !== Math.floor((e.beamTimer - dt) * 8)) {
+      this.audio.playBeamHum && this.audio.playBeamHum();
+    }
+    // Caught in the beam?
+    if (extended && !this.capture && p.invulnerableTimer <= 0 && !this.isGameOver &&
+        p.y > e.y && Math.abs(p.x - e.x) < this.beamHalfWidth(e, p.y)) {
+      this.capturePlayer(e);
+      return;
+    }
+    if (e.beamTimer >= 3.2 && !(this.capture && this.capture.commander === e)) {
+      this.returnToFormation(e);
+    }
+  }
+
+  returnToFormation(e) {
+    e.state = 'beamReturn';
+    e.path = { pts: [{ x: e.x, y: e.y }, { x: e.x, y: e.y - 120 }, { x: e.x, y: 120 }, null], t: 0, dur: 1.6 };
+  }
+
+  capturePlayer(e) {
+    const p = this.player;
+    this.capture = { commander: e, phase: 'pull', t: 0, fromX: p.x, fromY: p.y, x: p.x, y: p.y };
+    this.input.fire = false;
+    if (this.audio && this.audio.playCaptured) this.audio.playCaptured();
+  }
+
+  updateCapture(dt) {
+    const c = this.capture;
+    if (!c) return;
+    const p = this.player;
+    c.t += dt;
+    if (c.phase === 'pull') {
+      // Ship is dragged up the beam into the commander, spinning
+      const e = c.commander;
+      const k = Math.min(1, c.t / 1.5);
+      c.x = c.fromX + (e.x - c.fromX) * k;
+      c.y = c.fromY + (e.y + 26 - c.fromY) * k;
+      if (k >= 1) {
+        e.captive = true;
+        this.returnToFormation(e);
+        this.addScoreText(e.x, e.y + 30, 'FIGHTER CAPTURED', '#ff3344');
+        p.lives--;
+        this.combo = 0;
+        if (p.lives <= 0) {
+          this.capture = null;
+          this.isGameOver = true;
+          this.gameState = 'GAMEOVER';
+          if (this.audio) this.audio.stopBGM();
+          return;
+        }
+        c.phase = 'respawn';
+        c.t = 0;
+      }
+    } else if (c.phase === 'respawn' && c.t >= 1.8) {
+      p.x = this.width / 2;
+      p.y = this.height - 80;
+      p.hp = p.maxHp;
+      p.shield = p.maxShield;
+      p.invulnerableTimer = 3.0;
+      this.capture = null;
+    }
+  }
+
+  /** Commander carrying a captive was shot: rescue (if diving) or the captive turns hostile. */
+  releaseCaptive(e) {
+    const diving = e.state === 'dive' || e.state === 'beamDive';
+    if (diving && !this.capture) {
+      this.rescue = { x: e.x, y: e.y - 26, t: 0 };
+      this.addScoreText(e.x, e.y - 30, 'RESCUED!', '#58f898');
+      this.score += 1000;
+    } else {
+      const traitor = this.makeEnemy('traitor', e.x, e.y - 26, e.slot);
+      traitor.state = 'return';
+      traitor.path = { pts: [{ x: traitor.x, y: traitor.y }, { x: traitor.x, y: traitor.y - 40 }, { x: traitor.x, y: traitor.y }, null], t: 0, dur: 0.8 };
+      this.enemies.push(traitor);
+      this.addScoreText(e.x, e.y - 30, 'TRAITOR!', '#ff3344');
+    }
+  }
+
+  updateRescue(dt) {
+    const r = this.rescue;
+    if (!r) return;
+    const p = this.player;
+    r.t += dt;
+    // Freed fighter spins down and docks beside the player
+    const k = Math.min(1, r.t / 1.6);
+    r.x += ((p.x + 32) - r.x) * Math.min(1, dt * 4);
+    r.y += (p.y - r.y) * Math.min(1, dt * 4);
+    if (k >= 1 || (Math.abs(r.x - (p.x + 32)) < 6 && Math.abs(r.y - p.y) < 6 && r.t > 0.8)) {
+      this.rescue = null;
+      if (!p.dual) {
+        p.dual = true;
+        this.stats.rescues++;
+        if (this.audio) this.audio.playPowerUp();
+      }
+    }
+  }
+
+  /** Player hit-test, covering both ships when docked as a dual fighter. */
+  hitsPlayer(x, y, r) {
+    const p = this.player;
+    if (p.dual) {
+      return Math.hypot(x - (p.x - 16), y - p.y) < r + p.radius || Math.hypot(x - (p.x + 16), y - p.y) < r + p.radius;
+    }
+    return Math.hypot(x - p.x, y - p.y) < r + p.radius;
   }
 
   startDive(e) {
@@ -429,6 +652,12 @@ class SpaceEngine {
     const maxDivers = 1 + Math.min(3, this.difficulty + Math.floor(this.stage.idx / 2));
     if (settled.length && diving < maxDivers) {
       const leader = settled[Math.floor(Math.random() * settled.length)];
+      // Commanders sometimes come down to tractor-beam the player instead of diving
+      if (leader.type === 'commander' && !leader.captive && this.canBeamPlayer() && Math.random() < 0.6) {
+        this.startBeamDive(leader);
+        this.diveTimer = 2.5;
+        return;
+      }
       this.startDive(leader);
       // Strikers bring a wingman along
       if (leader.type === 'striker') {
@@ -540,7 +769,7 @@ class SpaceEngine {
     }
 
     // 2. TITLE SCREEN or HANGAR
-    if (this.gameState === 'TITLE' || this.gameState === 'HANGAR') {
+    if (this.gameState === 'TITLE' || this.gameState === 'HANGAR' || this.gameState === 'NAME_ENTRY') {
       return;
     }
 
@@ -554,7 +783,10 @@ class SpaceEngine {
       return;
     }
 
-    if (this.isGameOver) return;
+    if (this.isGameOver) {
+      this.gameOverTimer += dt;
+      return;
+    }
 
     // Decay Screen Shake
     if (this.shake > 0) {
@@ -573,6 +805,8 @@ class SpaceEngine {
 
     // 1. Update Player
     this.updatePlayer(dt);
+    this.updateCapture(dt);
+    this.updateRescue(dt);
 
     // 2. Update Player Projectiles
     this.updatePlayerBullets(dt);
@@ -617,6 +851,9 @@ class SpaceEngine {
       p.shield = Math.min(p.maxShield, p.shield + dt * 15);
     }
 
+    // No control while being dragged up a tractor beam
+    if (this.capture) return;
+
     // Movement: Keyboard or Pointer Follow
     let moveX = 0;
     let moveY = 0;
@@ -644,7 +881,8 @@ class SpaceEngine {
     }
 
     // Constrain within bounds
-    p.x = Math.max(p.radius + 8, Math.min(this.width - p.radius - 8, p.x));
+    const marginX = p.radius + 8 + (p.dual ? 16 : 0);
+    p.x = Math.max(marginX, Math.min(this.width - marginX, p.x));
     p.y = Math.max(p.radius + 20, Math.min(this.height - p.radius - 12, p.y));
 
     // Engine thruster flame particles
@@ -688,6 +926,20 @@ class SpaceEngine {
   firePlayerWeapon() {
     const p = this.player;
     if (this.audio) this.audio.playLaser(p.weaponTier);
+    const before = this.playerBullets.length;
+    this.fireWeaponPattern(p);
+    const fresh = this.playerBullets.slice(before);
+    // Dual fighter: both ships fire the same pattern, 32px apart
+    if (p.dual) {
+      fresh.forEach(b => {
+        b.x -= 16;
+        this.playerBullets.push(Object.assign({}, b, { x: b.x + 32 }));
+      });
+    }
+    this.stats.shotsFired += this.playerBullets.length - before;
+  }
+
+  fireWeaponPattern(p) {
 
     if (p.weaponTier === 1) {
       // Dual Blaster
@@ -829,6 +1081,8 @@ class SpaceEngine {
         const s = this.slotPosition(e);
         e.x = s.x;
         e.y = s.y;
+      } else if (e.state === 'beaming') {
+        this.updateBeam(e, dt);
       } else {
         // Follow the current bezier path (entry, dive, return or bonus flyby)
         const path = e.path;
@@ -844,7 +1098,11 @@ class SpaceEngine {
             this.enemies.splice(i, 1);
             continue;
           }
-          if (e.state === 'dive') {
+          if (e.state === 'beamDive') {
+            // Arrived at the hover point: switch the tractor beam on
+            e.state = 'beaming';
+            e.beamTimer = 0;
+          } else if (e.state === 'dive') {
             // Wrap around: re-enter from the top and fly back to the formation slot
             const s = this.slotPosition(e);
             e.state = 'return';
@@ -1125,6 +1383,7 @@ class SpaceEngine {
       }
 
       if (bulletHit) {
+        this.stats.hits++;
         if (b.piercing) {
           b.pierceCount--;
           if (b.pierceCount <= 0) this.playerBullets.splice(bIdx, 1);
@@ -1135,10 +1394,10 @@ class SpaceEngine {
     }
 
     // 2. Enemy Bullets vs Player
-    if (p.invulnerableTimer <= 0 && !this.isGameOver) {
+    if (p.invulnerableTimer <= 0 && !this.isGameOver && !this.capture) {
       for (let bIdx = this.enemyBullets.length - 1; bIdx >= 0; bIdx--) {
         const b = this.enemyBullets[bIdx];
-        if (Math.hypot(b.x - p.x, b.y - p.y) < b.radius + p.radius) {
+        if (this.hitsPlayer(b.x, b.y, b.radius)) {
           this.damagePlayer(15);
           this.enemyBullets.splice(bIdx, 1);
           break;
@@ -1149,7 +1408,7 @@ class SpaceEngine {
       for (let eIdx = this.enemies.length - 1; eIdx >= 0; eIdx--) {
         const e = this.enemies[eIdx];
         if (e.state === 'flyby') continue; // bonus-stage targets never attack
-        if (Math.hypot(e.x - p.x, e.y - p.y) < e.radius + p.radius) {
+        if (this.hitsPlayer(e.x, e.y, e.radius)) {
           this.damagePlayer(25);
           this.destroyEnemy(e, eIdx);
           break;
@@ -1159,7 +1418,7 @@ class SpaceEngine {
       // 4. Asteroids vs Player
       for (let aIdx = this.asteroids.length - 1; aIdx >= 0; aIdx--) {
         const ast = this.asteroids[aIdx];
-        if (Math.hypot(ast.x - p.x, ast.y - p.y) < ast.radius + p.radius) {
+        if (this.hitsPlayer(ast.x, ast.y, ast.radius)) {
           this.damagePlayer(30);
           this.destroyAsteroid(ast, aIdx);
           break;
@@ -1170,7 +1429,7 @@ class SpaceEngine {
     // 5. Player vs Power-ups
     for (let pIdx = this.powerups.length - 1; pIdx >= 0; pIdx--) {
       const pu = this.powerups[pIdx];
-      if (Math.hypot(pu.x - p.x, pu.y - p.y) < p.radius + pu.radius) {
+      if (!this.capture && this.hitsPlayer(pu.x, pu.y, pu.radius)) {
         this.collectPowerup(pu);
         this.powerups.splice(pIdx, 1);
       }
@@ -1199,8 +1458,16 @@ class SpaceEngine {
     // Reset combo
     this.combo = 0;
 
-    // Check Player Death
-    if (p.hp <= 0) {
+    // Check Player Death (a docked dual fighter is lost first instead of a life)
+    if (p.hp <= 0 && p.dual) {
+      p.dual = false;
+      p.hp = p.maxHp;
+      p.invulnerableTimer = 2.0;
+      this.shake = 18;
+      if (this.audio) this.audio.playExplosion('medium');
+      this.createExplosionParticles(p.x + 16, p.y, '#00f0f0', 24);
+      this.addScoreText(p.x, p.y - 30, 'WINGMAN LOST', '#ff3344');
+    } else if (p.hp <= 0) {
       this.killPlayer();
     }
   }
@@ -1213,6 +1480,7 @@ class SpaceEngine {
 
     this.createExplosionParticles(p.x, p.y, '#00f0f0', 35);
 
+    p.dual = false;
     if (p.lives <= 0) {
       this.isGameOver = true;
       this.gameState = 'GAMEOVER';
@@ -1232,15 +1500,27 @@ class SpaceEngine {
   destroyEnemy(enemy, index) {
     this.enemies.splice(index, 1);
     this.enemiesDefeated++;
+    this.stats.kills++;
+
+    if (enemy.type === 'commander') {
+      // Shot down mid-capture: the player's ship falls free
+      if (this.capture && this.capture.commander === enemy && this.capture.phase === 'pull') {
+        this.capture = null;
+        this.player.invulnerableTimer = 1.5;
+      }
+      if (enemy.captive) this.releaseCaptive(enemy);
+    }
 
     // Add Score with Combo Multiplier
     this.combo++;
     this.comboTimer = 3.0;
+    this.stats.maxCombo = Math.max(this.stats.maxCombo, this.combo);
     const mult = Math.min(5, 1 + Math.floor(this.combo / 4));
     // Divers are worth double, like in Galaga
-    const points = enemy.scoreValue * mult * (enemy.state === 'dive' ? 2 : 1);
+    const attacking = ['dive', 'beamDive', 'beaming'].includes(enemy.state);
+    const points = enemy.scoreValue * mult * (attacking ? 2 : 1);
     this.score += points;
-    this.addScoreText(enemy.x, enemy.y, String(points), enemy.state === 'dive' ? '#fcfc00' : '#ffffff');
+    this.addScoreText(enemy.x, enemy.y, String(points), attacking ? '#fcfc00' : '#ffffff');
     if (this.isBonusStage) this.bonusHits++;
 
     if (this.audio) this.audio.playExplosion(enemy.type === 'gunship' ? 'medium' : 'small');
@@ -1273,6 +1553,7 @@ class SpaceEngine {
   destroyBoss() {
     const b = this.boss;
     this.score += 5000 * this.wave;
+    this.stats.bosses++;
     this.shake = 30;
     if (this.audio) this.audio.playExplosion('boss');
 
